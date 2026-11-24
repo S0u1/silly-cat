@@ -7,6 +7,9 @@
 import sys
 import pefile
 
+# Windows 上 Python 默认按系统代码页输出（如 cp1252），中文会抛 UnicodeEncodeError
+sys.stdout.reconfigure(encoding="utf-8")
+
 # Windows 8 及以后才有的接口，Rust 1.78+ 的标准库和较新的 windows crate 会用到
 BAD_SYMBOLS = {
     "WaitOnAddress", "WakeByAddressSingle", "WakeByAddressAll",
