@@ -49,6 +49,7 @@
       "minimumSystemVersion": "13.0"
     },
     "windows": {
+      "webviewInstallMode": { "type": "skip" },
       "nsis": {
         "installMode": "currentUser",
         "languages": ["SimpChinese", "English"]
