@@ -40,7 +40,7 @@ win:
       arch: [x64]
     - target: zip
       arch: [x64]
-  artifactName: SillyCatElectronDemo_win7_x64.${ext}
+  artifactName: SillyCatElectronDemo_x64.${ext}
   signAndEditExecutable: false
   icon: ../src-tauri/icons/icon.ico
   extraFiles:
@@ -50,7 +50,7 @@ win:
         - "*.bat"
         - "README.txt"
 nsis:
-  artifactName: SillyCatElectronDemo_win7_x64-setup.${ext}
+  artifactName: SillyCatElectronDemo_x64-setup.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true

@@ -1,7 +1,7 @@
 ﻿; SillyCat Electron demo: 安装阶段日志。
 ; electron-builder 通过 build/installer.nsh 自动包含本文件（nsis.include 默认值）。
 ;
-; 目的：Win7 测试者装不上或中途关窗口时，也能留下日志发回来。日志直接放在当前用户的桌面：SillyCatDemo-install.log
+; 目的：测试者装不上或中途关窗口时，也能留下日志发回来。日志直接放在当前用户的桌面：SillyCatDemo-install.log
 ; （桌面写不了就退回 %APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log）。每次安装都写，不只在出错时写；每次安装追加一段。
 ; 编码：UTF-8 带 BOM（EF BB BF），行尾 CRLF，Win7 自带记事本能正确显示中文。NSIS 3.0.4.1 没有写 UTF-8 的指令，
 ; 所以用 WideCharToMultiByte 转码，再用 kernel32::WriteFile 直接往 FileOpen 返回的句柄里写。

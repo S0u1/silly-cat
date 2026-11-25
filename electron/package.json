@@ -2,7 +2,7 @@
   "name": "sillycat-electron-demo",
   "version": "0.1.0",
   "private": true,
-  "description": "SillyCat Electron 22 验证 demo：Win7 真透明、免 WebView2、全局键鼠",
+  "description": "SillyCat Electron 22 验证 demo（64 位 Win7/8/10/11）：免 WebView2、真透明、全局键鼠",
   "author": "SillyCat",
   "license": "MIT",
   "main": "main.js",

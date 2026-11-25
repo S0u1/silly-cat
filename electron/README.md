@@ -36,7 +36,7 @@
 
 ## 打包与安装日志
 
-`npm run dist` 在 `dist/` 出 NSIS 安装包 `SillyCatElectronDemo_win7_x64-setup.exe` 和免安装 `SillyCatElectronDemo_win7_x64.zip`（只出 x64：uiohook-napi 没有 ia32 预编译包）。配置在 `electron-builder.yml`：`signAndEditExecutable: false`，所以能在 macOS 上交叉构建、不需要 wine，代价是 exe 图标是默认的 Electron 图标；`prototype/` 和托盘图标用 `extraResources` 原样带进 `resources/`，不复制进仓库；zip 里额外带 `launchers/` 里的三个 `.bat` 和给测试者看的 `README.txt`。构建要联网下载 Electron 和 NSIS。
+`npm run dist` 在 `dist/` 出 NSIS 安装包 `SillyCatElectronDemo_x64-setup.exe` 和免安装 `SillyCatElectronDemo_x64.zip`（只出 x64：uiohook-napi 没有 ia32 预编译包）。配置在 `electron-builder.yml`：`signAndEditExecutable: false`，所以能在 macOS 上交叉构建、不需要 wine，代价是 exe 图标是默认的 Electron 图标；`prototype/` 和托盘图标用 `extraResources` 原样带进 `resources/`，不复制进仓库；zip 里额外带 `launchers/` 里的三个 `.bat` 和给测试者看的 `README.txt`。构建要联网下载 Electron 和 NSIS。
 
 `build/installer.nsh` 给安装器加了安装阶段日志，写到当前用户桌面的 `SillyCatDemo-install.log`（`$DESKTOP`，写之前先 `SetShellVarContext current`；桌面写不了就退回 `%APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log`；UTF-8 带 BOM、CRLF，每次安装追加一段，成功和失败都写）：各阶段断点、系统版本（读 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`）、安装器路径和命令行、安装目录，成功或失败时再转储安装器「详情」列表，失败时弹窗告诉用户日志位置。维护时注意：
 
