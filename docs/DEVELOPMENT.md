@@ -59,6 +59,11 @@
 - Windows 的 WebView2：`bundle.windows.webviewInstallMode` 保持默认的 `downloadBootstrapper`：安装时先查注册表，已装就跳过，没装才联网下载微软的引导程序。不用 `offlineInstaller`：它把完整运行库打进安装包，2026-11-24 实测微软独立安装包 `MicrosoftEdgeWebView2RuntimeInstallerX64.exe` 为 294,099,168 字节（约 280MB，Tauri 文档写的 127MB 已过时），而且 Windows 自更新直接下载 `-setup.exe`，每次更新都要下这么大。联网下载失败的用户，靠 `src-tauri/installer/` 里的两个语言文件覆盖的安装器报错文字找到出路：文字只指向 https://github.com/S0u1/silly-cat 的「常见问题」，具体下载方法写在 README，这样以后要改（比如决定在 GitHub 托管运行库）只改 README，不用重发安装器。语言文件由 `bundle.windows.nsis.customLanguageFiles` 引用，是 Tauri 内置语言文件的完整副本，只改了 `webview2AbortError` 和 `webview2DownloadError` 两行；升级 Tauri CLI 后要对照内置文件检查条目是否有增减。
 - Win7/8/8.1 的 WebView2：微软最新版运行库和引导程序在这些系统上崩（报缺 `PackageIdFromFullName`），最后支持的是 109。README 常见问题里给的是微软更新目录的直链（x64 109.0.1518.140，150,552,536 字节，SHA-256 `eac95c80…119b`，2026-11-24 下载核对过哈希，没在 Win7 真机装过），链接失效时走目录搜索页。注意：这只解决 WebView2；主线版本用较新的 Rust/Tauri 构建，Win7 上能否运行 SillyCat 本身另说。`exp/win7` 分支（Rust 1.77.2 + Tauri 2.11，CI 手动触发）出的安装包导入表检查通过，同样没在真机运行过。
 
+### Windows 启动诊断与单实例
+
+- `src-tauri/src/diag.rs` 把应用、Windows 和 WebView2 的版本、启动阶段及全局键鼠钩子安装失败写到 `%LOCALAPPDATA%\com.drew.sillycat\silly-cat.log`。超过 256 KiB 时，下次追加前轮换到 `silly-cat.log.old`。启动时找不到 WebView2、Tauri 返回运行错误、主线程 panic 或 setup 完成前任意线程 panic，都会尝试弹窗。setup 完成后的后台线程 panic 仅记录日志，并交给原 panic hook。
+- Windows 把 `tauri-plugin-single-instance` 注册为首个插件。再点桌面图标会调用现有主窗口的 `show()`，保留当前前台应用的焦点。
+
 ## 更新机制
 
 桌面版使用 Tauri 2 updater。启动约 10 秒后检查一次，之后每 24 小时检查。设置文件中的布尔字段 `autoUpdate` 默认是 `true`，缺失或类型错误时也按开启处理。关闭后停止后台检查，右键菜单和托盘里的「检查更新…」仍可手动使用。检查只请求本项目的 GitHub Release，不上传输入或设置。只有用户点击安装才下载更新。
@@ -90,6 +95,9 @@ Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所
 约束：以后 Rust 代码不能用 1.77.2 之后才稳定的接口（例如 `LazyLock` 要 1.80，`ErrorKind::ReadOnlyFilesystem` 要 1.83），新增依赖也要能在 1.77.2 下编译，否则 `win7` 任务会失败。本地检查：把上面的 `Cargo.toml` 和 `Cargo.lock` 改动做在临时工作区里，运行 `cargo +1.77.2 check --target x86_64-pc-windows-gnu --locked`。
 
 截至 2026-11-24，这个包没有在 Win7 真机上安装或运行过，导入表检查通过也不等于一定能运行；Win7 版的自动更新、WebView2 109 的安装也都没有真机验证。
+
+- `is_win7()` 用 `RtlGetVersion` 识别版本号 6.1，WebView 通过 `platform_flags` 给桌面页面加上 `win7-card` 类，显示统一底色和 1 px 内边框。显示主窗口前和窗口尺寸改变时，Rust 用 `SetWindowRgn` 按 18 逻辑像素的半径裁剪主窗口。Win7 的 WebView2 背景只能使用不透明颜色。[微软 WebView2 文档](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controller2)
+- 启动日志和弹窗、单实例唤出、卡片显示及缩放后的圆角裁剪都还没在 Win7 真机上验证。
 
 ## 手绘毛发部件
 

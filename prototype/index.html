@@ -6,6 +6,13 @@
 <title>捣蛋奶牛猫</title>
 <link rel="stylesheet" href="style.css">
 <script>/* 桌面外壳（Tauri）里进入桌面模式：只留猫、键盘、鼠标和特效 */ if (window.__TAURI__) document.documentElement.classList.add('desktop');</script>
+<script>
+  if (window.__TAURI__) {
+    window.__TAURI__.core.invoke('platform_flags')
+      .then((f) => { if (f && f.win7) document.documentElement.classList.add('win7-card'); })
+      .catch(() => {});
+  }
+</script>
 </head>
 <body>
 <header class="hint">在这页上随便敲键盘</header>

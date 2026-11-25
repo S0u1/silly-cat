@@ -28,12 +28,17 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWi
 # Windows 全局键鼠（低级钩子）和指针位置；只在 Windows 目标下依赖
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
+  "Wdk_System_SystemServices",
   "Win32_Foundation",
+  "Win32_Graphics_Gdi",
   "Win32_System_LibraryLoader",
   "Win32_System_Registry",
+  "Win32_System_SystemInformation",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }
+# 再点桌面图标时唤出已有的猫，不多开进程（macOS 由系统保证单实例）
+tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

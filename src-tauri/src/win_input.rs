@@ -400,7 +400,10 @@ pub fn start(app: AppHandle) {
                 }
                 std::thread::sleep(Duration::from_secs(2));
             }
-            eprintln!("[silly-cat] 全局键鼠钩子装不上，猫不会跟着打字和点击");
+            use std::io::Write as _;
+            let message = "全局键鼠钩子装不上，猫不会跟着打字和点击";
+            crate::diag::log("WARN", message);
+            let _ = writeln!(std::io::stderr(), "[silly-cat] {message}");
         })
         .expect("spawn input hook thread");
 }

@@ -440,6 +440,19 @@ html:is([data-cat="lihua"], [data-cat="maine"][data-art-style="line"]) #scene .a
 
 /* ---------- 桌面模式（Tauri 外壳，html.desktop）：透明背景，只留猫、键盘、鼠标和特效 ---------- */
 html.desktop, html.desktop body { background: transparent; }
+html.desktop.win7-card {
+  --win7-card-bg: #efe6d6;
+  --win7-card-border: #d4c7b0;
+}
+html.desktop.win7-card, html.desktop.win7-card body { background: var(--win7-card-bg); }
+html.desktop.win7-card body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  border: 1px solid var(--win7-card-border);
+  border-radius: 17px;
+  pointer-events: none;
+}
 html.desktop .hint, html.desktop #controls { display: none; }
 html.desktop body { display: block; }
 html.desktop #stage { width: 100vw; height: 100vh; padding: 0; }

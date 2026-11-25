@@ -5,6 +5,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod autostart;
+mod diag;
 mod updater;
 
 #[cfg(target_os = "macos")]
@@ -288,6 +289,66 @@ fn open_settings(app: AppHandle) {
 #[tauri::command]
 fn app_version(app: AppHandle) -> String {
     app.package_info().version.to_string()
+}
+
+#[cfg(windows)]
+fn is_win7() -> bool {
+    matches!(diag::windows_version(), Some((6, 1, _)))
+}
+
+#[cfg(not(windows))]
+fn is_win7() -> bool {
+    false
+}
+
+#[derive(Serialize)]
+struct PlatformFlags {
+    win7: bool,
+}
+
+#[tauri::command]
+fn platform_flags() -> PlatformFlags {
+    PlatformFlags { win7: is_win7() }
+}
+
+#[cfg(windows)]
+fn apply_win7_window_region(
+    win: &WebviewWindow,
+    applied: &std::cell::Cell<Option<(i32, i32, i32)>>,
+) {
+    use windows_sys::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
+
+    let (Ok(hwnd), Ok(size), Ok(scale)) = (win.hwnd(), win.outer_size(), win.scale_factor()) else {
+        return;
+    };
+    let (Ok(width), Ok(height)) = (i32::try_from(size.width), i32::try_from(size.height)) else {
+        return;
+    };
+    let diameter = ((18.0 * scale).round() as i32).saturating_mul(2);
+    let geometry = Some((width, height, diameter));
+    if applied.get() == geometry {
+        return;
+    }
+    // SAFETY: hwnd 来自当前窗口。SetWindowRgn 成功后由系统接管区域，失败时由这里释放。
+    unsafe {
+        let region = CreateRoundRectRgn(
+            0,
+            0,
+            width.saturating_add(1),
+            height.saturating_add(1),
+            diameter,
+            diameter,
+        );
+        if region.is_null() {
+            return;
+        }
+        // SetWindowRgn 会发窗口位置消息，可能再次触发同一尺寸的 Resized。
+        let previous = applied.replace(geometry);
+        if SetWindowRgn(hwnd.0.cast(), region, 1) == 0 {
+            applied.set(previous);
+            let _ = DeleteObject(region);
+        }
+    }
 }
 
 #[tauri::command]
@@ -587,7 +648,35 @@ fn open_input_monitoring_settings() {
 }
 
 fn main() {
-    tauri::Builder::default()
+    diag::install();
+    #[cfg(windows)]
+    {
+        diag::log("INFO", concat!("SillyCat ", env!("CARGO_PKG_VERSION")));
+        if let Some((major, minor, build)) = diag::windows_version() {
+            diag::log("INFO", &format!("Windows {major}.{minor}.{build}"));
+        } else {
+            diag::log("WARN", "RtlGetVersion 未能读取 Windows 版本");
+        }
+        match tauri::webview_version() {
+            Ok(version) => diag::log("INFO", &format!("WebView2 {version}")),
+            Err(err) => diag::fatal(&format!(
+                "没找到 WebView2 运行库。请按 https://github.com/S0u1/silly-cat#常见问题 安装。\n{err}"
+            )),
+        }
+    }
+
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(win) = app.get_webview_window("main") {
+            match win.show() {
+                Ok(()) => diag::log("INFO", "再次启动，已唤出现有的猫"),
+                Err(err) => diag::log("WARN", &format!("再次启动，无法唤出现有的猫：{err}")),
+            }
+        }
+    }));
+
+    let result = builder
         .invoke_handler(tauri::generate_handler![
             cursor_local,
             held_input_state,
@@ -600,6 +689,7 @@ fn main() {
             save_settings,
             open_settings,
             app_version,
+            platform_flags,
             open_link,
             autostart::autostart_status,
             autostart::set_autostart,
@@ -612,6 +702,7 @@ fn main() {
             updater::update_status
         ])
         .setup(|app| {
+            diag::log("INFO", "进入 setup");
             updater::setup(app.handle());
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -631,12 +722,19 @@ fn main() {
             }
             let start = load_pos(app.handle()).filter(|p| on_some_screen(&win, *p)).unwrap_or_else(|| default_pos(&win));
             place(&win, start);
+            diag::log("INFO", "主窗口定位完成");
             // 全屏行为配置失败时只记日志，猫照常显示（只是可能进不了别的应用的全屏 Space）。
             #[cfg(target_os = "macos")]
             {
                 if let Err(e) = macos_window::configure_cat(&win) {
                     eprintln!("[silly-cat] 设置跨全屏窗口行为失败：{e}");
                 }
+            }
+            #[cfg(windows)]
+            let win7_region = is_win7().then(|| std::cell::Cell::new(None));
+            #[cfg(windows)]
+            if let Some(applied) = &win7_region {
+                apply_win7_window_region(&win, applied);
             }
             let _ = win.show();
 
@@ -648,6 +746,10 @@ fn main() {
                     if let Some(p) = moved_pos(&w2, *pos) {
                         schedule_save(handle.clone(), p);
                     }
+                }
+                #[cfg(windows)]
+                if let (Some(applied), WindowEvent::Resized(_)) = (&win7_region, e) {
+                    apply_win7_window_region(&w2, applied);
                 }
             });
 
@@ -662,10 +764,20 @@ fn main() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            diag::log("INFO", "托盘建好");
 
             input::start(app.handle().clone());
+            diag::log("INFO", "input::start 已返回");
+            diag::mark_ready();
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running silly-cat");
+        .run(tauri::generate_context!());
+
+    #[cfg(windows)]
+    match result {
+        Ok(()) => {}
+        Err(err) => diag::fatal(&format!("运行捣蛋猫失败：{err}")),
+    }
+    #[cfg(not(windows))]
+    result.expect("error while running silly-cat");
 }
