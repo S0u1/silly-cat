@@ -83,16 +83,26 @@ let error = null;
 let keys = 0;
 let buttons = 0;
 const heldKeys = new Map();
+// 锁屏或 UAC 期间松开的键，钩子收不到抬起事件，页面读不到键态时 5 秒后会自己松爪，
+// 但这里的「已按下」记录不会跟着清，之后该键的第一次按下会被当成长按重复吞掉。
+// 系统长按重复的间隔最长约 1 秒，同一个键超过 2 秒没再收到按下事件，就当成新的一次按下。
+const REPEAT_WINDOW_MS = 2000;
+const downAt = new Map();
 
 function handleKey(keycode, down) {
   if (!started) return;
   const code = codeForKeycode(keycode);
   if (!code) return;
   if (down) {
-    if (heldKeys.has(code)) return;
+    const now = Date.now();
+    const gap = now - downAt.get(code);
+    downAt.set(code, now); // 长按重复事件也刷新，持续长按不会过期
+    // 系统时钟被往回调时 gap 为负，同样当成新的一次按下，页面对已按住的键会忽略。
+    if (heldKeys.has(code) && gap >= 0 && gap < REPEAT_WINDOW_MS) return;
     heldKeys.set(code, virtualKeyFor(code, keycode));
   } else {
     heldKeys.delete(code);
+    downAt.delete(code);
   }
   keys += 1;
   callbacks.onKey?.({ code, down });
@@ -159,6 +169,7 @@ function stop() {
   clearTimeout(retryTimer);
   retryTimer = undefined;
   heldKeys.clear();
+  downAt.clear();
 
   if (!started) return;
   started = false;
