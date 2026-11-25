@@ -251,6 +251,7 @@ async function run(ctx, check) {
   });
   const expectedCommands = {
     platform_flags: { win7 }, load_settings: null, position_locked: false,
+    click_through_status: { enabled: false, available: true },
     input_status: { granted: true, keys: false, mouse: false, keyboard: 'unsupported', needs_permission: false },
     update_status: null, updater_configured: true, app_version: require('electron').app.getVersion(),
     autostart_status: { enabled: false, needs_approval: false, platform: 'windows' },
@@ -487,6 +488,28 @@ async function run(ctx, check) {
     assert.deepEqual(ctx.getIgnore().lastArgs, expectedArgs(true));
     return '传给 setIgnoreMouseEvents 的实参与模式一致，松开后才恢复穿透';
   });
+  await check('开启鼠标穿透立即结束拖动', async () => {
+    await lock(false);
+    try {
+      await windowCall('setIgnoreCursorEvents', false);
+      await windowCall('startDragging');
+      assert(ctx.isDragging());
+      await click('鼠标穿透');
+      assert(!ctx.isDragging());
+      assert(ctx.getIgnore().applied);
+      await windowCall('setIgnoreCursorEvents', false);
+      assert(ctx.getIgnore().applied);
+      assert.equal(item('鼠标穿透').checked, true);
+      assert.deepEqual(readState('click-through'), { enabled: true });
+      assert.deepEqual(await invoke('set_click_through', { enabled: false }), { enabled: false, available: true });
+      assert.equal(item('鼠标穿透').checked, false);
+      assert.equal(await invoke('position_locked'), false);
+      return '菜单启用后结束拖动、持续穿透并存盘，设置命令可关闭';
+    } finally {
+      await invoke('set_click_through', { enabled: false });
+      if (ctx.isDragging()) await dragEnd();
+    }
+  });
   await check('拖动、位置存盘与锁定', async () => {
     await lock(false);
     try {
@@ -522,7 +545,7 @@ async function run(ctx, check) {
   });
   await check('菜单模板及动作', async () => {
     assert.deepEqual(ctx.menuTemplate().map(entry => entry.label || entry.type),
-      ['设置…', '检查更新…', '显示/隐藏猫', '锁定位置', '重置位置', '打开日志文件夹', 'separator', '退出']);
+      ['设置…', '检查更新…', '显示/隐藏猫', '锁定位置', '鼠标穿透', '重置位置', '打开日志文件夹', 'separator', '退出']);
     await lock(false);
     win.showInactive();
     try {
@@ -664,7 +687,7 @@ if (require.main === module) {
   for (const method of contract.methods) assert.equal(typeof bridge.window.getCurrentWindow()[method], 'function');
   assert.equal(typeof registered['silly:event'], 'function');
   assert.deepEqual(main.menuTemplate().map(e => e.label || e.type),
-    ['设置…', '检查更新…', '显示/隐藏猫', '锁定位置', '重置位置', '打开日志文件夹', 'separator', '退出']);
+    ['设置…', '检查更新…', '显示/隐藏猫', '锁定位置', '鼠标穿透', '重置位置', '打开日志文件夹', 'separator', '退出']);
   for (const filename of ['index.html', 'settings.html']) {
     const file = path.join(dir, filename);
     assert(main.isPage(pathToFileURL(file).href, file));

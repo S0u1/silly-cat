@@ -5,8 +5,8 @@
 //   Windows 上 Rust 的低级键盘钩子已经按扫描码换好了 code，发来 { code, down }，直接用。
 //   不做字符转换，不记录任何输入。桌面模式下不挂 input.js 的 DOM 键盘监听，同一次按键只算一次。
 // - 鼠标移动：每 33ms 向 Rust 取一次全局指针位置（不需要输入监控权限），相邻两次的差值就是 pointerMove(dx, dy)。
-// - 鼠标按键：Rust 的鼠标 tap 发来；指针正在猫身上时这次点击交给页面（摸头 / 拖动），不算「点鼠标」。
-// - 点击穿透：用同一份指针位置做 document.elementFromPoint 命中判断，只有指在有画面的地方时窗口才接收鼠标。
+// - 鼠标按键：指针正在猫身上时交给页面（摸头 / 拖动）。打开鼠标穿透后，鼠标动作全部来自全局监听。
+// - 点击穿透：默认用 document.elementFromPoint 命中判断；打开鼠标穿透后，窗口一直忽略鼠标事件。
 // - 在头上按下是摸头；位置解锁时，在身体、尾巴、键盘、鼠标等其他画面上按下是拖动窗口。
 // - 右键有画面的地方会在指针位置弹出和菜单栏（托盘）图标相同的原生菜单。锁定后拖不动，仍可用「重置位置」。
 // - 收不到键盘输入（只有 macOS：没授权「输入监控」，或授权记录和当前签名对不上）时，猫左上方冒一个小气泡，
@@ -76,7 +76,8 @@
     const heldKeys = new Map();
     const heldButtons = new Map();
     let checkingHeld = false;
-    let pet = null;           // { id }
+    let pet = null;           // { id, target }
+    let clickThrough = null;  // null 表示还在读取桌面状态
     let over = false;         // 指针此刻是否在有画面的地方
     let ignoring = null;      // 窗口当前是否点击穿透
     let lastG = null;         // 上一次的全局指针位置
@@ -158,7 +159,7 @@
     // ---------- 鼠标按键（全局） ----------
     function onButton({ button, down }) {
       if (down) {
-        if (over || pet) return; // 点在猫身上：交给页面（摸头 / 拖动）
+        if (!clickThrough && (over || pet)) return; // 交给页面（摸头 / 拖动）
         if (heldButtons.has(button)) return;
         heldButtons.set(button, { since: performance.now() }); sink.pointerDown(button);
       } else {
@@ -177,6 +178,18 @@
       if (v === ignoring) return;
       ignoring = v;
       appWin.setIgnoreCursorEvents(v).catch(() => { ignoring = null; });
+    }
+
+    function refreshIgnore() {
+      if (clickThrough !== null) setIgnore(clickThrough || !(over || pet));
+    }
+
+    function setClickThrough(enabled) {
+      if (destroyed) return;
+      clickThrough = enabled;
+      if (enabled) endPet();
+      if (enabled || lastG) refreshIgnore();
+      else if (ignoring === true) setIgnore(false);
     }
 
     // 超时只结束本次等待。IPC 即使迟到，结果也不会传给调用方。
@@ -248,19 +261,25 @@
             sink.pointerAt(c.x, c.y);
           }
           over = hitAt(c.x, c.y);
-          setIgnore(!(over || pet));
+          refreshIgnore();
         }
       } catch (_) { /* 窗口关闭中等 */ } finally { polling = false; }
     }
 
     // ---------- 页面内：摸头、拖动 ----------
     let positionLocked = null;
+    function releaseCapture({ id, target }) {
+      if (target.hasPointerCapture?.(id)) target.releasePointerCapture(id);
+    }
     function endPet() {
       if (!pet) return;
+      const capture = pet;
       pet = null;
+      releaseCapture(capture);
       sink.petEnd();
     }
     function onPointerDown(e) {
+      if (clickThrough !== false) return;
       if (e.button === 2) { openMenu(e); return; }
       if (e.button !== 0) return;
       if (inPermBubble(e.target)) {
@@ -273,7 +292,7 @@
       const h = headEls.find((n) => isNode(e.target) && n.contains(e.target));
       if (h) {
         headEl = h;
-        pet = { id: e.pointerId };
+        pet = { id: e.pointerId, target: h };
         try { h.setPointerCapture(e.pointerId); } catch (_) { /* 某些环境不支持 */ }
         sink.petStart(...rel(e));
         return;
@@ -290,7 +309,7 @@
     let menuOpen = false;
     let lastMenuAt = -1e9;
     function openMenu(e) {
-      if (!inScene(e.target)) return;
+      if (clickThrough !== false || !inScene(e.target)) return;
       if (menuOpen || performance.now() - lastMenuAt < 500) return;
       menuOpen = true;
       lastMenuAt = performance.now();
@@ -313,6 +332,13 @@
       // 先监听再读取，读取途中收到的切换事件优先。
       return invoke('position_locked').then((locked) => { positionLocked ??= locked; });
     }).catch(() => { positionLocked ??= false; }); // 读不到锁定状态时按解锁处理，免得猫永远拖不动
+    T.event.listen('silly:click-through', (ev) => setClickThrough(ev.payload.enabled)).then((u) => {
+      if (destroyed) { u(); return; }
+      unlisten.push(u);
+      return invokeWithTimeout('click_through_status').then((state) => {
+        if (clickThrough === null) setClickThrough(state?.enabled === true);
+      });
+    }).catch(() => { if (clickThrough === null) setClickThrough(false); });
     T.event.listen('silly:key', (ev) => onKey(ev.payload)).then((u) => unlisten.push(u));
     T.event.listen('silly:button', (ev) => onButton(ev.payload)).then((u) => unlisten.push(u));
     const timer = setInterval(poll, POLL_MS);

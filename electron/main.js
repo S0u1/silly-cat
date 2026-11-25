@@ -150,7 +150,7 @@ function fatal(title, detail) {
 
 function send(name, payload) {
   const targets = [loaded && win];
-  if (['silly:key', 'silly:button', 'silly:update'].includes(name)) targets.push(settingsWin);
+  if (['silly:key', 'silly:button', 'silly:update', 'silly:click-through'].includes(name)) targets.push(settingsWin);
   for (const target of targets) {
     if (target && !target.isDestroyed() && !target.webContents.isDestroyed()) {
       target.webContents.send('silly:event', name, payload);
@@ -238,7 +238,7 @@ async function showSettings() {
     return;
   }
   const area = screen.getDisplayMatching(win.getBounds()).workArea;
-  const height = Math.max(1, Math.min(1410, area.height - 40));
+  const height = Math.max(1, Math.min(1510, area.height - 40));
   const window = new BrowserWindow({
     width: 400, height, useContentSize: true, title: '捣蛋猫 · 设置',
     show: false, frame: true, skipTaskbar: false, resizable: false,
@@ -315,6 +315,7 @@ async function ready() {
   });
   installIPC();
   installTray();
+  applyIgnore();
   await win.loadFile(indexPath);
   if (debug) debugKey = await applyDebugCSS();
   if (process.platform === 'win32' && !selftest) {
@@ -369,7 +370,13 @@ function boot() {
   if (!selftest && !app.requestSingleInstanceLock()) {
     log('INFO', '已有实例运行'); app.quit(); return;
   }
-  app.on('second-instance', () => { if (win && !win.isDestroyed()) win.showInactive(); });
+  app.on('second-instance', () => {
+    if (!liveWindow()) return;
+    win.showInactive();
+    if (clickThroughEnabled()) {
+      showSettings().catch(error => log('WARN', `Cannot open settings: ${error.message}`));
+    }
+  });
   app.on('child-process-gone', (_, d) => log('ERROR', 'child-process-gone ' + JSON.stringify(d)));
   app.on('before-quit', () => { stopAudioProbe(); updater?.stop(); hook.stop(); endDrag(); flushPosition(); });
   app.on('window-all-closed', () => app.quit());
@@ -388,6 +395,7 @@ const DRAG_TIMEOUT_MS = 60_000;
 const forwardMouse = process.env.SILLYCAT_NO_FORWARD !== '1';
 
 let positionLocked = false;
+let clickThrough = false;
 let tray;
 let positionTimer;
 let pendingPosition;
@@ -448,6 +456,7 @@ function defaultPos({ width, height } = liveWindow() ? win.getBounds() : sizeBou
 
 function initialBounds() {
   positionLocked = readJSON('window-lock.json')?.locked === true;
+  clickThrough = readJSON('click-through.json')?.enabled === true;
   const size = sizeBounds(catSizeOf(loadSettings()));
   const position = readJSON('window-position.json');
   if (Number.isFinite(position?.x) && Number.isFinite(position?.y)) {
@@ -527,7 +536,7 @@ function getIgnore() {
 
 function applyIgnore() {
   // Keep accepting mouseup during drag even when the pointer leaves the cat.
-  const next = !drag && ignoreDesired;
+  const next = clickThroughEnabled() || (!drag && ignoreDesired);
   if (!liveWindow() || ignoreApplied === next) return;
   const args = forwardMouse ? [next, { forward: true }] : [next];
   win.setIgnoreMouseEvents(...args);
@@ -549,7 +558,7 @@ function endDrag() {
 }
 
 function startDragging() {
-  if (!liveWindow() || positionLocked || drag) return;
+  if (!liveWindow() || positionLocked || clickThroughEnabled() || drag) return false;
   const start = getCursorPoint();
   const bounds = win.getBounds();
   const dx = start.x - bounds.x;
@@ -578,10 +587,11 @@ function startDragging() {
     timeout: setTimeout(endDrag, DRAG_TIMEOUT_MS),
   };
   applyIgnore();
+  return true;
 }
 
 function showContextMenu() {
-  if (selftest || !liveWindow()) return;
+  if (selftest || !liveWindow() || clickThroughEnabled()) return;
   const menu = Menu.buildFromTemplate(menuTemplate());
   return new Promise((resolve) => menu.popup({ window: win, callback: resolve }));
 }
@@ -707,6 +717,8 @@ function invokeCommand(command, args) {
       return;
     case 'cursor_local': return cursorLocal();
     case 'position_locked': return positionLocked;
+    case 'click_through_status': return clickThroughStatus();
+    case 'set_click_through': return setClickThrough(args?.enabled);
     case 'show_context_menu': return showContextMenu();
     case 'input_status': return hook.inputStatus();
     case 'held_input_state': return hook.heldInputState(args?.keys, args?.buttons);
@@ -795,6 +807,47 @@ function refreshTrayMenu() {
   tray.setContextMenu(Menu.buildFromTemplate(menuTemplate()));
 }
 
+function clickThroughAvailable() {
+  return selftest || trayAvailable();
+}
+
+function clickThroughEnabled() {
+  return clickThrough && clickThroughAvailable();
+}
+
+function clickThroughStatus() {
+  return { enabled: clickThroughEnabled(), available: clickThroughAvailable() };
+}
+
+function setClickThrough(enabled) {
+  if (typeof enabled !== 'boolean') throw new Error('enabled 必须是布尔值');
+  const changed = clickThroughAvailable() && enabled !== clickThrough;
+  if (changed) {
+    clickThrough = enabled;
+    if (enabled) endDrag();
+    applyIgnore();
+  }
+  const status = clickThroughStatus();
+  send('silly:click-through', status);
+  refreshTrayMenu();
+  if (changed) {
+    try {
+      writeJSON('click-through.json', { enabled });
+    } catch (error) {
+      throw new Error(`保存鼠标穿透失败：${error.message}`);
+    }
+  }
+  return status;
+}
+
+function toggleClickThrough() {
+  try {
+    setClickThrough(!clickThroughEnabled());
+  } catch (error) {
+    log('WARN', error.message);
+  }
+}
+
 function toggleVisibility() {
   if (!liveWindow()) return;
   if (!win.isVisible()) win.showInactive();
@@ -846,6 +899,8 @@ function menuTemplate() {
     { label: '检查更新…', click: async () => { await showSettings(); await updater.check(true); } },
     { label: '显示/隐藏猫', enabled: selftest || trayAvailable(), click: toggleVisibility },
     { label: '锁定位置', type: 'checkbox', checked: positionLocked, click: togglePositionLock },
+    { label: '鼠标穿透', type: 'checkbox', checked: clickThroughEnabled(),
+      enabled: clickThroughAvailable(), click: toggleClickThrough },
     { label: '重置位置', click: resetPosition },
     { label: '打开日志文件夹', click: openLogFolder },
     { type: 'separator' },

@@ -41,10 +41,17 @@ function fakeClock() {
   };
 }
 
+class FakeNode {
+  contains(node) {
+    return node === this || node.parent === this;
+  }
+}
+
 function fakeElement() {
   const classes = new Set();
   const attributes = new Map();
-  return {
+  const captures = new Set();
+  return Object.assign(new FakeNode(), {
     style: {},
     classList: {
       add: (name) => classes.add(name),
@@ -57,7 +64,11 @@ function fakeElement() {
     appendChild() {},
     remove() {},
     getScreenCTM: () => null,
-  };
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 20, height: 20 }),
+    hasPointerCapture: (id) => captures.has(id),
+    setPointerCapture: (id) => captures.add(id),
+    releasePointerCapture: (id) => captures.delete(id),
+  });
 }
 
 const unreadable = () => ({ keys: null, buttons: [] });
@@ -65,18 +76,26 @@ const cursorAt = (x) => ({ x, y: 10, gx: x, gy: 10 });
 const pending = () => new Promise(() => {});
 const macKeyCodes = { F12: 111, KeyK: 40 };
 
-async function setup({ held = unreadable, cursor = () => null } = {}) {
+async function setup({ held = unreadable, cursor = () => null, clickThrough = false } = {}) {
   const clock = fakeClock();
   const frames = [];
   const errors = [];
   const listeners = new Map();
+  const domListeners = new Map();
   const elements = new Map();
   const moves = [];
   const positions = [];
+  const ignoreCalls = [];
+  const mouseButtons = [];
+  const gestures = [];
   function element(id) {
     if (!elements.has(id)) elements.set(id, fakeElement());
     return elements.get(id);
   }
+  const scene = element('scene');
+  const head = element('cat-head');
+  const body = element('cat-body');
+  head.parent = body.parent = scene;
   const window = createContext({
     setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout,
     setInterval: clock.setInterval, clearInterval: clock.clearInterval,
@@ -84,9 +103,13 @@ async function setup({ held = unreadable, cursor = () => null } = {}) {
     requestAnimationFrame: (callback) => frames.push(callback),
     console: { error: (...args) => errors.push(args) },
     navigator: { userAgent: 'Macintosh' },
-    document: { getElementById: element, createElementNS: fakeElement, elementFromPoint: () => null },
+    Node: FakeNode,
+    document: {
+      getElementById: element, createElementNS: fakeElement,
+      elementFromPoint: (x) => x === 10 ? head : x === 14 ? body : null,
+    },
     innerWidth: 800, innerHeight: 600,
-    addEventListener() {},
+    addEventListener: (name, listener) => domListeners.set(name, listener),
     removeEventListener() {},
     SillyArt: { arm() {}, cheek() {} },
     SillyCoats: { current: () => ({}) },
@@ -99,6 +122,7 @@ async function setup({ held = unreadable, cursor = () => null } = {}) {
             case 'held_input_state': return held(clock.now());
             case 'input_status': return { needs_permission: false };
             case 'position_locked': return false;
+            case 'click_through_status': return { enabled: clickThrough, available: true };
             default: assert.fail(`Unexpected IPC: ${command}`);
           }
         },
@@ -109,7 +133,12 @@ async function setup({ held = unreadable, cursor = () => null } = {}) {
           return () => listeners.delete(name);
         },
       },
-      window: { getCurrentWindow: () => ({ async setIgnoreCursorEvents() {} }) },
+      window: {
+        getCurrentWindow: () => ({
+          async setIgnoreCursorEvents(v) { ignoreCalls.push(v); },
+          async startDragging() { gestures.push('dragStart'); },
+        }),
+      },
     },
   });
   window.window = window;
@@ -121,12 +150,20 @@ async function setup({ held = unreadable, cursor = () => null } = {}) {
     ...cat,
     pointerMove(...args) { moves.push(args); cat.pointerMove(...args); },
     pointerAt(...args) { positions.push(args); cat.pointerAt(...args); },
-  });
+    pointerDown(button) { mouseButtons.push(['down', button]); cat.pointerDown(button); },
+    pointerUp(button) { mouseButtons.push(['up', button]); cat.pointerUp(button); },
+    petStart(...args) { gestures.push('petStart'); cat.petStart(...args); },
+    petEnd() { gestures.push('petEnd'); cat.petEnd(); },
+  }, { sceneEl: scene, headEl: head });
   await flush();
 
   function emit(name, payload) { listeners.get(`silly:${name}`)({ payload }); }
   return {
-    window, clock, cat, desktop, keyboard, element, errors, moves, positions,
+    window, clock, cat, desktop, keyboard, element, errors, moves, positions, ignoreCalls, mouseButtons, gestures,
+    clickThrough: (enabled) => emit('click-through', { enabled, available: true }),
+    pointerDown: (target) => domListeners.get('pointerdown')({
+      target, button: 0, pointerId: 1, clientX: 10, clientY: 10, preventDefault() {},
+    }),
     key: (code, down) => emit('key', { kc: macKeyCodes[code], down }),
     button: (button, down) => emit('button', { button, down }),
     caps: () => emit('key', { kc: 57 }),
@@ -146,6 +183,52 @@ async function setup({ held = unreadable, cursor = () => null } = {}) {
     },
   };
 }
+
+test('启动时恢复鼠标穿透，猫身上的点击和指针移动仍交给猫', async () => {
+  const app = await setup({ clickThrough: true, cursor: (now) => cursorAt(now <= 33 ? 10 : 14) });
+  await app.clock.advance(33);
+  assert.equal(app.desktop.debug.over, true);
+  assert.deepEqual(app.ignoreCalls, [true]);
+  app.button(0, true);
+  app.button(0, false);
+  assert.deepEqual(app.mouseButtons, [['down', 0], ['up', 0]]);
+  await app.clock.advance(33);
+  assert.deepEqual(app.moves, [[4, 0]]);
+  assert.deepEqual(app.positions, [[14, 10]]);
+  assert.deepEqual(app.ignoreCalls, [true]);
+
+  app.clickThrough(false);
+  assert.equal(app.ignoreCalls.at(-1), false);
+  app.button(0, true);
+  app.button(0, false);
+  assert.deepEqual(app.mouseButtons, [['down', 0], ['up', 0]]);
+});
+
+test('摸头时打开鼠标穿透会立即结束摸头并释放捕获', async () => {
+  const app = await setup({ cursor: () => cursorAt(10) });
+  await app.clock.advance(33);
+  const head = app.element('cat-head');
+  app.pointerDown(head);
+  assert.deepEqual(app.gestures, ['petStart']);
+  assert.equal(head.hasPointerCapture(1), true);
+  app.clickThrough(true);
+  assert.deepEqual(app.gestures, ['petStart', 'petEnd']);
+  assert.equal(head.hasPointerCapture(1), false);
+  assert.equal(app.ignoreCalls.at(-1), true);
+  app.button(0, true);
+  assert.deepEqual(app.mouseButtons, [['down', 0]]);
+});
+
+test('鼠标穿透开启时按下身体不启动拖动，关闭后可以拖动', async () => {
+  const app = await setup({ clickThrough: true, cursor: () => cursorAt(14) });
+  await app.clock.advance(33);
+  const body = app.element('cat-body');
+  app.pointerDown(body);
+  assert.deepEqual(app.gestures, []);
+  app.clickThrough(false);
+  app.pointerDown(body);
+  assert.deepEqual(app.gestures, ['dragStart']);
+});
 
 test('每秒移动鼠标时，漏掉抬起的 F12 仍会在连续不可读 5 秒后释放', async () => {
   const app = await setup({ cursor: (now) => cursorAt(Math.floor(now / 1000)) });

@@ -43,8 +43,9 @@
   - 判断方法：不看 `CGPreflightListenEventAccess`（结果在进程里有缓存），看 WindowServer 让不让键盘 tap 打开——没授权、或授权记录绑的是别的签名时，`CGEventTapCreate` 照样返回 tap，但 `CGEventTapIsEnabled` 为 false、开不起来。SillyCat 自己在前台（设置窗口在前面）时系统会放行它的 tap，这时不重新判断，沿用它上次在后台时的结论。
   - ad-hoc 签名随构建变化。首个证书签名的版本需要重新授权一次，之后同一证书签名的版本会保留授权。授权绑在旧签名上时（例如先给本地构建授过权，再装了 CI 构建的版本），系统设置里的开关看起来是开的，但收不到按键，系统也不再弹授权窗口，系统日志里有 `Failed to match existing code requirement for subject com.drew.sillycat and service kTCCServiceListenEvent`。处理：设置窗口里点「重置授权」（应用自己执行 `/usr/bin/tccutil reset ListenEvent com.drew.sillycat`，只清本应用的这一条记录，再申请一次授权并打开输入监控设置），然后在列表里重新打开 SillyCat；打开后系统提示「退出并重新打开」就点它，没提示、或列表里没有 SillyCat，就点「重新启动 SillyCat」。
 - 按住头是摸头；按住身体、键盘、鼠标等其他地方拖动窗口，位置记在 `~/Library/Application Support/com.drew.sillycat/window-position.json`（Windows 在 `%APPDATA%\com.drew.sillycat\`，记的是物理像素）。
-- 点击菜单栏（托盘）图标，或右键猫、键盘、鼠标等有画面的地方，打开同一套菜单：设置…、检查更新…、显示/隐藏猫、锁定位置、重置位置、打开输入监控设置（仅 macOS）、分隔线、退出。右键菜单在指针位置弹出。
+- 点击菜单栏（托盘）图标，或右键猫、键盘、鼠标等有画面的地方，打开同一套菜单：设置…、检查更新…、显示/隐藏猫、锁定位置、鼠标穿透、重置位置、打开输入监控设置（仅 macOS）、分隔线、退出。右键菜单在指针位置弹出。
 - 勾选「锁定位置」后拖不动，摸头和右键照常。「重置位置」仍可把猫放回默认位置，锁定状态保持不变。锁定状态存在应用配置目录的 `window-lock.json`（布尔字段 `locked`），启动时读取，缺失或损坏时默认解锁。
+- 「鼠标穿透」默认关闭，独立保存在应用配置目录的 `click-through.json`（布尔字段 `enabled`）。`click_through_status` 读取 `{ enabled, available }`，`set_click_through({ enabled })` 保存并同步托盘，`silly:click-through` 把状态发到主窗口和设置窗口。右键菜单打开时读取当前状态。开启时结束摸头，兼容版的模拟拖动也会结束。整个主窗口忽略鼠标事件，眼睛和鼠标动画仍使用全局输入。Windows 的单实例回调和 macOS 的 `RunEvent::Reopen` 会在穿透开启时打开设置。Tauri 使用系统原生拖动，拖动时鼠标键处于按下状态，松开后才能点击菜单切换穿透。
 - 设置窗口：从右键菜单或菜单栏图标里的「设置…」打开（已经开着就带到前面，Esc 关闭；关掉不会退出应用）。页面是 `prototype/settings.html`，字段表和校验在 `prototype/settings.js`。时间参数都按秒填：入睡时间（默认 20，5–3600）；开始流口水、趴到键盘上的时刻（从最后一次操作算起，6/7–10800，留空 = 自动，即入睡时间 × 2、× 3.5；必须入睡 < 流口水 < 趴下）；连续打字多久发飙（默认 90，15–36000）；罢工后歇多久消气（默认 20，5–3600）；大约多久推一次东西（默认 600，60–36000）。「显示状态条」和「推东西」默认开启。改出合法值后立即生效并写入 `~/Library/Application Support/com.drew.sillycat/settings.json`，下次启动自动读取；「恢复默认」回到上面的默认值。
 - 设置窗口的基础高度由 `SETTINGS_HEIGHT` 和 `BASE_H` 一起定义。创建时按猫所在显示器的工作区逻辑高度减 40 px 封顶，取不到所在显示器时用主显示器，两者都取不到时用基础高度。页面展开或收起授权区时按 `screen.availHeight - 40` 封顶，内容超出时可上下滚动。
 - 「开机时自动启动」默认关闭，设置页打开时通过 `autostart_status` 读取系统状态，切换时调用 `set_autostart`。macOS 使用系统登录项，Windows 使用当前用户的 Run 键，并检查任务管理器为 SillyCat 写入的禁用记录。自启状态独立于 `settings.json` 和「恢复默认」。
@@ -100,6 +101,8 @@
 `.github/workflows/release.yml` 的 `electron` 任务在 Windows runner 上检查版本，运行契约、输入和更新器测试，然后打包 NSIS 安装包和免安装 zip，检查 Koffi 和 uiohook 的原生模块导入表。带窗口的自检结果写入任务摘要，失败时仅发出告警。CI 构建时写入 exe 图标和版本信息。签名步骤使用和 Tauri 相同的更新私钥，Electron 运行应用的验签代码，以内置公钥核对安装包和签名版本，验证成功后才生成 `latest-electron.json`。标签构建将安装包、`.sig`、zip 和清单附件上传到同一草稿 Release。手动构建从 workflow artifact 取产物，未配置密钥时只出未签名的包。
 
 内部产品名和数据目录仍使用 `SillyCatElectronDemo`，安装器的 appId 也沿用 demo，以便覆盖安装旧 demo 并保留兼容版的设置。兼容版只读取自己的设置和更新清单。全局键鼠钩子、Aero 透明与关闭合成时的回退、开机启动，以及 NSIS 覆盖安装和自动更新后的重启需要在 Windows 真机验收。Win7 真机还未验证。
+
+兼容版沿用上面的穿透存储和 IPC 约定。托盘创建失败时按关闭处理，禁用右键菜单项和设置页开关，保留下次启动可恢复的存盘偏好。自检允许在无托盘时测试开关。已有实例收到 `second-instance` 且穿透生效时，会打开设置窗口。
 
 改发布版本号时，同步更新根目录的 `package.json` 和 `package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`，以及 `electron/package.json` 和 `electron/package-lock.json`。两份 npm 锁文件都要同步根级 `version` 和 `packages[""].version`。
 

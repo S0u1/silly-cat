@@ -50,8 +50,22 @@ console.error = (...args) => sceneErrors.push(args.map(String).join(' '));
 SETTINGS_STUB = """
 window.probeCalls = 0;
 window.savedSettings = [];
-window.__TAURI__ = { event: {listen: async () => () => {}}, core: { invoke: async (cmd, args) => {
+let clickThrough = { enabled: false, available: TRAY_AVAILABLE };
+const listeners = new Map();
+window.setTrayClickThrough = enabled => {
+  clickThrough = { ...clickThrough, enabled };
+  listeners.get('silly:click-through')?.({ payload: clickThrough });
+};
+window.__TAURI__ = { event: {listen: async (name, callback) => {
+  listeners.set(name, callback);
+  return () => listeners.delete(name);
+}}, core: { invoke: async (cmd, args) => {
   if (cmd === 'save_settings') savedSettings.push(args.settings);
+  if (cmd === 'click_through_status') return clickThrough;
+  if (cmd === 'set_click_through') {
+    setTrayClickThrough(args.enabled);
+    return clickThrough;
+  }
   if (cmd === 'media_activity') {
     probeCalls++;
     if (PROBE === 'error') throw new Error('IPC failed');
@@ -424,10 +438,12 @@ def settings(open_page):
         checked: document.querySelector('#f-headphones').checked,
         probes: window.probeCalls ?? 0 };
     })()"""
-    configurations = [('supported', 'macos'), ('supported', 'windows'), ('unsupported', 'macos'),
-                      ('error', 'macos'), ('timeout', 'macos'), (None, None)]
-    for probe, platform in configurations:
-        stub = SETTINGS_STUB.replace('PROBE', json.dumps(probe)).replace('PLATFORM', json.dumps(platform))
+    configurations = [('supported', 'macos', True), ('supported', 'windows', True),
+                      ('supported', 'windows', False), ('unsupported', 'macos', True),
+                      ('error', 'macos', True), ('timeout', 'macos', True), (None, None, False)]
+    for probe, platform, tray_available in configurations:
+        stub = (SETTINGS_STUB.replace('PROBE', json.dumps(probe)).replace('PLATFORM', json.dumps(platform))
+                .replace('TRAY_AVAILABLE', json.dumps(tray_available)))
         init = CLOCK + (stub if probe else '')
         with open_page((400, BASE_H), 'settings.html', {}, init) as (ev, capture):
             wait_until(ev, "[...document.images].every(img => img.complete && img.naturalWidth > 0)")
@@ -439,6 +455,9 @@ def settings(open_page):
             assert dims['hidden'] == (probe == 'unsupported') and not dims['checked'], dims
             assert not (errors := ev('sceneErrors')), errors
             if probe == 'supported':
+                assert ev("document.querySelector('#f-click-through').disabled") == (not tray_available)
+                if not tray_available:
+                    assert ev("document.querySelector('#click-through-hint').textContent.includes('没有托盘图标')")
                 baseline = ev("""(() => {
                     const row = document.querySelector('[data-bool="headphones"]');
                     row.hidden = true;
@@ -453,6 +472,12 @@ def settings(open_page):
                 assert dims['content'] <= dims['viewport'], dims
                 if platform == 'macos':
                     capture().save(OUTPUT / 'settings.png', optimize=True)
+                    ev('setTrayClickThrough(true)')
+                    assert ev("document.querySelector('#f-click-through').checked")
+                    ev("document.querySelector('#f-click-through').click()")
+                    wait_until(ev, "!document.querySelector('#f-click-through').disabled")
+                    assert not ev("document.querySelector('#f-click-through').checked")
+                    ev('setTrayClickThrough(true)')
                     assert ev("""document.querySelector('input[name="headphoneColor"]:checked').value === 'strawberry'
                         && getComputedStyle(document.querySelector('#hp-colors')).opacity === '0.5'""")
                     ev("""document.querySelector('input[value="mint"]').click(),
@@ -468,6 +493,8 @@ def settings(open_page):
                     ev("document.querySelector('#reset').click()")
                     wait_until(ev, 'savedSettings.length === 3')
                     assert ev('savedSettings[2].headphoneColor') == 'strawberry'
+                    assert ev("""document.querySelector('#f-click-through').checked
+                        && savedSettings.every(s => !('clickThrough' in s))""")
 
 
 def main():

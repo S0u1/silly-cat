@@ -409,11 +409,15 @@ fn load_lock(app: &AppHandle) -> Option<SavedLock> {
 
 fn save_lock(app: &AppHandle, locked: bool) -> Result<(), Box<dyn std::error::Error>> {
     let path = lock_file(app).ok_or("找不到配置目录")?;
+    save_window_pref(path, &SavedLock { locked })
+}
+
+fn save_window_pref(path: PathBuf, value: &impl Serialize) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
     let temp = path.with_extension("json.tmp");
-    std::fs::write(&temp, serde_json::to_vec(&SavedLock { locked })?)?;
+    std::fs::write(&temp, serde_json::to_vec(value)?)?;
     std::fs::rename(temp, path)?;
     Ok(())
 }
@@ -423,12 +427,77 @@ fn position_locked(app: AppHandle) -> bool {
     app.state::<PositionLock>().locked.load(Ordering::SeqCst)
 }
 
+struct ClickThrough {
+    enabled: AtomicBool,
+    tray_item: CheckMenuItem<tauri::Wry>,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+struct SavedClickThrough {
+    enabled: bool,
+}
+
+#[derive(Clone, Copy, Serialize)]
+struct ClickThroughStatus {
+    enabled: bool,
+    available: bool,
+}
+
+fn click_through_file(app: &AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|dir| dir.join("click-through.json"))
+}
+
+fn load_click_through(app: &AppHandle) -> Option<SavedClickThrough> {
+    let data = std::fs::read(click_through_file(app)?).ok()?;
+    serde_json::from_slice(&data).ok()
+}
+
+fn save_click_through(app: &AppHandle, enabled: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let path = click_through_file(app).ok_or("找不到配置目录")?;
+    save_window_pref(path, &SavedClickThrough { enabled })
+}
+
+#[tauri::command]
+fn click_through_status(app: AppHandle) -> ClickThroughStatus {
+    ClickThroughStatus {
+        enabled: app.state::<ClickThrough>().enabled.load(Ordering::SeqCst),
+        available: true,
+    }
+}
+
+#[tauri::command]
+fn set_click_through(app: AppHandle, enabled: bool) -> Result<ClickThroughStatus, String> {
+    let state = app.state::<ClickThrough>();
+    let changed = state.enabled.swap(enabled, Ordering::SeqCst) != enabled;
+    if changed && enabled {
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.set_ignore_cursor_events(true);
+        }
+    }
+    let _ = state.tray_item.set_checked(enabled);
+    let status = ClickThroughStatus { enabled, available: true };
+    for label in ["main", "settings"] {
+        let _ = app.emit_to(label, "silly:click-through", status);
+    }
+    if changed {
+        save_click_through(&app, enabled).map_err(|e| format!("保存鼠标穿透失败：{e}"))?;
+    }
+    Ok(status)
+}
+
+struct CatMenu {
+    menu: Menu<tauri::Wry>,
+    lock: CheckMenuItem<tauri::Wry>,
+    click_through: CheckMenuItem<tauri::Wry>,
+}
+
 /// 托盘和右键共用菜单内容，前缀区分两个原生菜单里的项目。
 fn build_cat_menu(
     app: &AppHandle,
     prefix: &str,
     locked: bool,
-) -> tauri::Result<(Menu<tauri::Wry>, CheckMenuItem<tauri::Wry>)> {
+    click_through_enabled: bool,
+) -> tauri::Result<CatMenu> {
     let item = |id, label| MenuItem::with_id(app, format!("{prefix}{id}"), label, true, None::<&str>);
     let lock = CheckMenuItem::with_id(
         app,
@@ -438,6 +507,14 @@ fn build_cat_menu(
         locked,
         None::<&str>,
     )?;
+    let click_through = CheckMenuItem::with_id(
+        app,
+        format!("{prefix}click-through"),
+        "鼠标穿透",
+        true,
+        click_through_enabled,
+        None::<&str>,
+    )?;
     let menu = Menu::with_items(
         app,
         &[
@@ -445,6 +522,7 @@ fn build_cat_menu(
             &item("check-update", "检查更新…")?,
             &item("toggle", "显示/隐藏猫")?,
             &lock,
+            &click_through,
             &item("reset", "重置位置")?,
         ],
     )?;
@@ -452,7 +530,7 @@ fn build_cat_menu(
     menu.append(&item("settings", "打开输入监控设置")?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&item("quit", "退出")?)?;
-    Ok((menu, lock))
+    Ok(CatMenu { menu, lock, click_through })
 }
 
 /// 右键猫（或键盘、鼠标等有画面的地方）：在指针位置弹出和托盘内容相同的原生菜单。
@@ -466,7 +544,11 @@ fn build_cat_menu(
 #[tauri::command]
 async fn show_context_menu(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
     let locked = position_locked(app.clone());
-    let (menu, _) = build_cat_menu(&app, "ctx-", locked).map_err(|e| e.to_string())?;
+    let enabled = click_through_status(app.clone()).enabled;
+    if enabled {
+        return Ok(());
+    }
+    let CatMenu { menu, .. } = build_cat_menu(&app, "ctx-", locked, enabled).map_err(|e| e.to_string())?;
     window.popup_menu(&menu).map_err(|e| e.to_string())
 }
 
@@ -488,6 +570,12 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             // 原生菜单可能自行切换勾选，以 Rust 状态为准。右键菜单会在下次打开时重建。
             let _ = state.tray_item.set_checked(locked);
             let _ = app.emit_to("main", "silly:lock", locked);
+        }
+        "click-through" => {
+            let enabled = !click_through_status(app.clone()).enabled;
+            if let Err(err) = set_click_through(app.clone(), enabled) {
+                eprintln!("[silly-cat] {err}");
+            }
         }
         "quit" => app.exit(0),
         _ => {
@@ -515,7 +603,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 }
 
 /// 设置窗口的默认高度，和 settings.html 的 BASE_H 一致。留一点字体换行余量，授权提示显示时由页面加高。
-const SETTINGS_HEIGHT: f64 = 1410.0;
+const SETTINGS_HEIGHT: f64 = 1510.0;
 
 fn show_settings(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
@@ -544,6 +632,13 @@ fn show_settings(app: &AppHandle) {
         // macOS：Accessory 应用默认不是前台应用，激活一下设置窗口才能成为键盘焦点窗口。
         // Windows：这一步来自用户刚点过的托盘菜单 / 猫窗口，系统允许本进程把新窗口带到前台
         let _ = w.set_focus();
+    }
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn show_settings_if_click_through(app: &AppHandle) {
+    if app.try_state::<ClickThrough>().is_some_and(|state| state.enabled.load(Ordering::SeqCst)) {
+        show_settings(app);
     }
 }
 
@@ -701,9 +796,10 @@ fn main() {
                 Err(err) => diag::log("WARN", &format!("再次启动，无法唤出现有的猫：{err}")),
             }
         }
+        show_settings_if_click_through(app);
     }));
 
-    let result = builder
+    let builder = builder
         .invoke_handler(tauri::generate_handler![
             cursor_local,
             held_input_state,
@@ -724,6 +820,8 @@ fn main() {
             #[cfg(target_os = "macos")]
             autostart::open_login_items,
             position_locked,
+            click_through_status,
+            set_click_through,
             show_context_menu,
             updater::install_update,
             updater::updater_configured,
@@ -736,10 +834,15 @@ fn main() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             let locked = load_lock(app.handle()).unwrap_or_default().locked;
-            let (menu, tray_item) = build_cat_menu(app.handle(), "", locked)?;
+            let enabled = load_click_through(app.handle()).unwrap_or_default().enabled;
+            let CatMenu { menu, lock, click_through } = build_cat_menu(app.handle(), "", locked, enabled)?;
             app.manage(PositionLock {
                 locked: AtomicBool::new(locked),
-                tray_item,
+                tray_item: lock,
+            });
+            app.manage(ClickThrough {
+                enabled: AtomicBool::new(enabled),
+                tray_item: click_through,
             });
 
             let win = app.get_webview_window("main").expect("main window");
@@ -763,6 +866,9 @@ fn main() {
             #[cfg(windows)]
             if let Some(applied) = &win7_region {
                 apply_win7_window_region(&win, applied);
+            }
+            if enabled {
+                let _ = win.set_ignore_cursor_events(true);
             }
             let _ = win.show();
 
@@ -798,14 +904,22 @@ fn main() {
             diag::log("INFO", "input::start 已返回");
             diag::mark_ready();
             Ok(())
-        })
-        .run(tauri::generate_context!());
+        });
 
+    #[cfg(target_os = "macos")]
+    builder.build(tauri::generate_context!()).expect("error while building silly-cat")
+        .run(|app, event| {
+            if let tauri::RunEvent::Reopen { .. } = event {
+                show_settings_if_click_through(app);
+            }
+        });
+    #[cfg(not(target_os = "macos"))]
+    let result = builder.run(tauri::generate_context!());
     #[cfg(windows)]
     match result {
         Ok(()) => {}
         Err(err) => diag::fatal(&format!("运行捣蛋猫失败：{err}")),
     }
-    #[cfg(not(windows))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     result.expect("error while running silly-cat");
 }
