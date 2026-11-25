@@ -1,46 +1,24 @@
-# SillyCat Electron 22 验证版
+# 捣蛋猫 兼容版
 
-在已有依赖的 `electron/` 目录运行 `npm start`。窗口直接加载同仓库的 `prototype/index.html`，使用 Electron 自带的 Chromium。打包时页面目录和托盘 PNG 分别放在 `resources/prototype/` 和 `resources/tray.png`。安装包和 Win7 桌面合成效果需要在 Windows 上验收。
+供原版装不上或缺少 WebView2 的 Windows x64 电脑使用。兼容版使用 Electron 22.3.27 自带的 Chromium。安装包按当前用户安装，zip 解压后可直接运行 SillyCatElectronDemo.exe。桌面和开始菜单显示「捣蛋猫 兼容版」。
 
-右键猫或使用托盘菜单可隐藏、显示、锁定、重置位置或显示日志文件。头部用于摸猫，解锁后按住身体可拖动。全局键鼠仅在 Windows 正常启动时启用。日志里只有累计事件数和钩子的启动状态。
+## 使用与排查
 
-## 垫片
+点托盘图标或右键猫可以打开设置、检查更新、切换显示、锁定或重置位置、打开日志文件夹和退出。按住身体可拖动，按住头部可摸猫。Windows 7 使用 Aero 时显示透明窗口，关闭桌面合成时使用卡片背景。
 
-沙箱 preload 在页面脚本执行前提供 `window.__TAURI__`。只开放固定的 IPC 通道，事件订阅返回可调用的取消函数。
+设置、窗口位置和锁定状态保存在原来的 `%APPDATA%\SillyCatElectronDemo\`。这个文件夹也保存运行日志 `silly-cat.log` 和安装日志 `install.log`。运行日志超过 256 KiB 后，下次追加时轮换为 `silly-cat.log.old`。致命运行错误会把当前日志复制到桌面「捣蛋猫兼容版-错误日志.txt」，安装失败会生成「捣蛋猫兼容版-安装日志.txt」。桌面不可写时按弹窗提示从日志文件夹获取。调试启动脚本的用法见随包 README.txt。
 
-| 能力 | 行为 |
-| --- | --- |
-| `platform_flags` | 返回 `{win7:false}`，页面使用透明样式 |
-| `load_settings`、`save_settings`、`preview_cat_size` | 读写 JSON、广播设置、更改大小并固定右下角 |
-| `cursor_local`、`position_locked`、`show_context_menu`、`input_status`、`app_version` | 返回光标 DIP 坐标、锁定状态、菜单关闭结果、钩子状态和计数、应用版本 |
-| `setIgnoreCursorEvents`、`startDragging` | 点击穿透、拖动和位置记忆 |
-| `held_input_state` | 拒绝，页面沿用 60 秒空闲释放逻辑 |
-| `update_status`、`updater_configured` | 固定返回空闲状态和 false |
-| `install_update` | 拒绝，提示 demo 不含自动更新 |
-| `open_settings`、主窗口 `close()` | 成功返回，设置入口留日志 |
-| `autostart_status`、`set_autostart`、`open_login_items`、`open_input_monitoring`、`reset_input_monitoring`、`restart_app`、`open_link` | 拒绝，提示 demo 未实现 |
+## 开发和验收
 
-页面事件为 `silly:key`、`silly:button`、`silly:settings`、`silly:lock`。更新事件仅保留订阅接口。Win7 上原生模块加载失败时猫仍可显示，钩子每两秒重试，最多再试五次。uiohook 提供转换后的键码，AltGr 合成 Ctrl、部分日韩键及非美式布局需按实际键盘核验。
+在本目录执行 `npm ci`、`npm run selftest`、`npm run dist`。自测需可用的桌面窗口服务、回环网络及项目的 Tauri CLI。页面直接加载同仓库的 prototype 资源，preload 提供其使用的 Tauri 接口。macOS 可开发和交叉打包，真实系统键鼠、合成、登录项及安装升级流程须在 Windows 上验收。自测使用临时配置和模拟的系统操作。`npm run selftest -- --selftest-out /path/to/output` 可指定窗口自测报告及截图的输出目录。
 
-## 自检与回传
+macOS 上运行 dist 时，准备脚本按 package-lock.json 的版本和 SHA-512 完整性值补齐 Koffi 的 Windows x64 预编译模块。
 
-运行 `npm run selftest`，或用 `npm run selftest -- --selftest-out "/path/to/output"` 指定输出目录。需要可用的桌面窗口服务。自检使用独立临时配置，注入合成输入，构造菜单并调用动作。终端会打印报告路径、各项结果和退出状态。源码自检读取依赖的 `libuiohook/include/uiohook.h` 并核对内置快照。安装包裁掉头文件时，自检使用同版本的键表快照。
+构建输出位于 dist/，包含当前用户 NSIS 安装包和免安装 zip。产品内部标识和默认目录与之前的 Electron 安装一致。NSIS 模板读取已有安装位置，没有比较新旧产品版本号的降级拦截。安装脚本保留模板的进程检查、卸载和结束页逻辑。
 
-输出含 `selftest.json`、透明原图 `capture-raw.png`、灰底及棋盘格合成图 `capture-gray.png` / `capture-checker.png` 和边框图 `capture-debug.png`。页面截图只能核对渲染输出的 alpha，Win7 桌面是否透出壁纸须单独目检。
+## 发布签名与更新清单
 
-运行日志默认写到桌面 `SillyCatDemo-run.log`（`app.getPath('desktop')`，跟随系统的桌面重定向；UTF-8 带 BOM、CRLF 换行，Win7 自带记事本能正确显示中文）。桌面写不了就退回 `app.getPath('userData')`（Windows 上是 `%APPDATA%\SillyCatElectronDemo\`），文件名不变，日志第一行和错误弹窗里会写明原因。安装器的日志是桌面上的 `SillyCatDemo-install.log`，见下面。`--selftest` 时日志写在临时 userData 里，不碰真实桌面。启动失败可把这两个文件发回来。可分别尝试以下选项，改动后退出已有实例再启动。
-
-- `SILLYCAT_DEBUG=1` 显示洋红和青色窗口边框，并每 10 秒在日志里记录一次钩子累计事件数（只有计数）。窗口不可聚焦，没有 DevTools 快捷键。
-- `--disable-gpu` 或 `SILLYCAT_DISABLE_GPU=1` 关闭硬件加速，可用于比较白底和 GPU 崩溃问题。
-- `SILLYCAT_NO_FORWARD=1` 切换为不传 forward 选项的鼠标穿透调用，用于比较 Win7 上的穿透与拖动松手。
-
-## 打包与安装日志
-
-`npm run dist` 在 `dist/` 出 NSIS 安装包 `SillyCatElectronDemo_x64-setup.exe` 和免安装 `SillyCatElectronDemo_x64.zip`（只出 x64：uiohook-napi 没有 ia32 预编译包）。配置在 `electron-builder.yml`：`signAndEditExecutable: false`，所以能在 macOS 上交叉构建、不需要 wine，代价是 exe 图标是默认的 Electron 图标；`prototype/` 和托盘图标用 `extraResources` 原样带进 `resources/`，不复制进仓库；zip 里额外带 `launchers/` 里的三个 `.bat` 和给测试者看的 `README.txt`。构建要联网下载 Electron 和 NSIS。
-
-`build/installer.nsh` 给安装器加了安装阶段日志，写到当前用户桌面的 `SillyCatDemo-install.log`（`$DESKTOP`，写之前先 `SetShellVarContext current`；桌面写不了就退回 `%APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log`；UTF-8 带 BOM、CRLF，每次安装追加一段，成功和失败都写）：各阶段断点、系统版本（读 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`）、安装器文件名、是否静默，成功或失败时再转储安装器「详情」列表（带路径的行整行省略），失败时弹窗告诉用户日志位置。**两个日志都不写文件路径**（路径里有 Windows 用户名）：安装器和运行日志只记目录的特征（盘符、是否含非 ASCII 字符、是否含空格、长度，安装目录还记在不在 `%LOCALAPPDATA%` / Program Files 下）；运行日志的所有文字都过 `scrub()`，已知目录换成 `<userData>`、`<resources>` 这类符号，其余路径只留最后的文件名（保留 `main.js:123:5` 这样的定位信息）。维护时注意：
-
-- 模板没有 `.onInstSuccess` / `.onInstFailed` / `.onGUIEnd`，这里定义了它们；`.onUserAbort` 已被 MUI2 定义，改用 `MUI_CUSTOMFUNCTION_ABORT`。升级 electron-builder 后要重新核对，重复定义 makensis 会报错。
-- 不要定义 `customCheckAppRunning`、`customUnInstallCheck`、`customWelcomePage`、`customFinishPage` 等宏：模板用 `!ifmacrodef` 判断，定义了就会替换自带逻辑。这里只用纯追加的 `preInit`、`customInit`、`customFiles_x64`、`customInstall`。
-- 模板在非静默安装时对安装段执行 `SetDetailsPrint none`，详情列表里基本没有内容，所以才加了断点行。
-- makensis 以 `-WX` 运行，任何警告都会让构建失败。
+1. 将 package.json 和锁文件中的应用版本对齐原版 tauri.conf.json。运行自测和构建。
+2. 使用原版对应的私钥，在安全的发布环境执行 `tauri signer sign --private-key-path <私钥文件> --app-version <版本> dist/SillyCat_<版本>_electron_x64-setup.exe`。保留生成的 .sig。签名中的受信版本号必须和清单完全相同。
+3. 执行 `node tools/make-electron-manifest.mjs <版本> <标签> SillyCat_<版本>_electron_x64-setup.exe dist/SillyCat_<版本>_electron_x64-setup.exe.sig dist/latest-electron.json`。版本和标签分别填写，例如 0.0.7 与 v0.0.7。
+4. 在同一 GitHub Release 上传安装包、latest-electron.json 和供手动下载的 zip。自动更新从 releases/latest/download/latest-electron.json 获取 windows-x86_64 安装包，并在启动安装器前核对签名和版本。

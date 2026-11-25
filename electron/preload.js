@@ -22,8 +22,12 @@ async function invoke(channel, name, arg) {
 const currentWindow = {
   setIgnoreCursorEvents: value => invoke('silly:window', 'setIgnoreCursorEvents', value),
   startDragging: () => invoke('silly:window', 'startDragging'),
+  setSize: size => invoke('silly:window', 'setSize', { width: size.width, height: size.height }),
   close: () => invoke('silly:window', 'close')
 };
+
+// contextBridge 调用函数时不会传递构造函数的 this，显式返回可跨上下文复制的尺寸。
+function LogicalSize(width, height) { return { width, height }; }
 
 contextBridge.exposeInMainWorld('__TAURI__', {
   core: { invoke: (cmd, args) => invoke('silly:invoke', cmd, args) },
@@ -34,7 +38,8 @@ contextBridge.exposeInMainWorld('__TAURI__', {
       return () => { listeners.delete(id); };
     }
   },
-  window: { getCurrentWindow: () => currentWindow }
+  window: { getCurrentWindow: () => currentWindow, LogicalSize },
+  dpi: { LogicalSize }
 });
 
 const endDrag = () => ipcRenderer.send('silly:drag-end');

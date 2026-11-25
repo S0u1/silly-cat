@@ -1,8 +1,11 @@
 'use strict';
 
+const { virtualKeyFor, readHeldState } = require('./win-input-state');
+
 // libuiohook derives these VC values from Windows virtual keys. The addon
-// discards scanCode and hook flags, so layout-dependent labels, aliased or
-// unmapped JIS/Korean keys, and AltGr's synthetic left Ctrl carry through.
+// discards the native VK, physical scan code and hook flags, so aliased or
+// layout-dependent labels, unmapped JIS/Korean keys, and
+// AltGr's synthetic left Ctrl carry through.
 const KEY_CODES = {
   0x01: 'Escape',
   0x02: 'Digit1', 0x03: 'Digit2', 0x04: 'Digit3', 0x05: 'Digit4', 0x06: 'Digit5',
@@ -79,7 +82,7 @@ let retryTimer;
 let error = null;
 let keys = 0;
 let buttons = 0;
-const heldKeys = new Set();
+const heldKeys = new Map();
 
 function handleKey(keycode, down) {
   if (!started) return;
@@ -87,7 +90,7 @@ function handleKey(keycode, down) {
   if (!code) return;
   if (down) {
     if (heldKeys.has(code)) return;
-    heldKeys.add(code);
+    heldKeys.set(code, virtualKeyFor(code, keycode));
   } else {
     heldKeys.delete(code);
   }
@@ -171,4 +174,13 @@ function status() {
   return { loaded: !!hook, started, error, keys, buttons };
 }
 
-module.exports = { start, stop, status, codeForKeycode };
+function inputStatus() {
+  // libuiohook on Windows starts both low-level hooks together or fails startup.
+  return { granted: true, keys: started, mouse: started, keyboard: 'unsupported', needs_permission: false };
+}
+
+function heldInputState(keys, buttons) {
+  return readHeldState(heldKeys, keys, buttons);
+}
+
+module.exports = { start, stop, status, codeForKeycode, inputStatus, heldInputState };

@@ -147,8 +147,64 @@ function verifyTransparency({ width, height, bitmap }) {
   return width + '×' + height + '；四角透明，非透明像素 ' + count + '，包围盒 ' + [left, top, right, bottom].join(',');
 }
 
+function prototypeSource(dir) {
+  let source = '';
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) source += prototypeSource(file);
+    else if (/\.(?:html|js)$/.test(entry.name)) {
+      const text = fs.readFileSync(file, 'utf8');
+      if (text.includes('__TAURI__') || /\b(?:invoke|listen)\(\s*['"]/.test(text)) source += text + '\n';
+    }
+  }
+  return source;
+}
+
+function checkContract(prototypeDir, packaged = false) {
+  const main = fs.readFileSync(path.join(__dirname, 'main.js'), 'utf8');
+  const dispatch = main.slice(main.indexOf('function invokeCommand('), main.indexOf('function windowMethod('));
+  const commands = new Set([...dispatch.matchAll(/case '([^']+)':/g)].map(match => match[1]));
+  const checkCommand = name => {
+    if (name === 'open_login_items') assert(!commands.has(name), 'Windows 不注册此命令');
+    else assert(commands.has(name), '缺少命令 ' + name);
+  };
+  const roots = [];
+  if (!packaged) {
+    const root = path.resolve(__dirname, '..');
+    roots.push(root);
+    const dotgit = path.join(root, '.git');
+    if (fs.existsSync(dotgit) && fs.statSync(dotgit).isFile()) {
+      const gitdir = path.resolve(root, fs.readFileSync(dotgit, 'utf8').replace(/^gitdir:\s*/, '').trim());
+      const common = fs.readFileSync(path.join(gitdir, 'commondir'), 'utf8').trim();
+      const primary = path.resolve(gitdir, common, '..');
+      if (primary !== root && fs.existsSync(path.join(primary, 'src-tauri/src/main.rs'))) roots.push(primary);
+    }
+    for (const checkout of roots) {
+      const rust = fs.readFileSync(path.join(checkout, 'src-tauri/src/main.rs'), 'utf8');
+      const handler = /generate_handler!\[([\s\S]*?)\]\)/.exec(rust);
+      assert(handler, '找不到 generate_handler! 注册表');
+      for (const token of handler[1].replace(/#\[.*?\]/g, '').split(',')) {
+        const name = token.trim().split('::').pop();
+        if (name) checkCommand(name);
+      }
+      assert.equal(require('./package.json').version, readJSON(path.join(checkout, 'src-tauri/tauri.conf.json')).version);
+    }
+  }
+  const source = prototypeSource(prototypeDir);
+  for (const call of source.matchAll(/\binvoke\(\s*['"]([^'"]+)['"]/g)) checkCommand(call[1]);
+  for (const call of source.matchAll(/\blisten\(\s*['"]([^'"]+)['"]/g)) {
+    assert(main.includes("send('" + call[1] + "'"), '缺少事件 ' + call[1]);
+  }
+  const properties = [...source.matchAll(/(?:__TAURI__|\bT)\.(\w+)(?:\.(\w+))?/g)]
+    .map(m => [m[1], m[2]].filter(Boolean).join('.'));
+  const methods = [...source.matchAll(/(?:\bappWin|\bwin|getCurrentWindow\(\))\.(\w+)\(/g)].map(m => m[1]);
+  return { properties: [...new Set(properties)], methods: [...new Set(methods)], checkouts: roots.length };
+}
+
 async function run(ctx, check) {
   const { win, userData, out } = ctx;
+  const win7 = process.platform === 'win32' && /^6\.1(?:\.|$)/.test(require('os').release()) &&
+    !require('electron').systemPreferences.isAeroGlassEnabled();
   const contents = win.webContents;
   const page = source => contents.executeJavaScript(source);
   const invoke = (cmd, args = {}) => page('window.__TAURI__.core.invoke(' + JSON.stringify(cmd) + ',' + JSON.stringify(args) + ')');
@@ -173,21 +229,31 @@ async function run(ctx, check) {
     const { x, y } = win.getContentBounds();
     ctx.setCursor({ x: x - 80, y: y - 80 });
   };
+  await check('Tauri 命令、事件、窗口契约及版本号', async () => {
+    const contract = checkContract(path.dirname(ctx.indexPath), require('electron').app.isPackaged);
+    for (const property of contract.properties) {
+      assert(await page('typeof window.__TAURI__.' + property + ' !== "undefined"'), '缺少 __TAURI__.' + property);
+    }
+    for (const method of contract.methods) {
+      assert.equal(await page('typeof __TAURI__.window.getCurrentWindow().' + method), 'function', method);
+    }
+    return JSON.stringify(contract);
+  });
   await check('页面与桌面模式', async () => {
     const state = await page(`({
       desktop: document.documentElement.classList.contains('desktop'),
       card: document.documentElement.classList.contains('win7-card'),
       cat: !!window.__cat, input: SillyDesktopInput.isDesktop()
     })`);
-    assert.deepEqual(state, { desktop: true, card: false, cat: true, input: true });
+    assert.deepEqual(state, { desktop: true, card: win7, cat: true, input: true });
     assert.deepEqual(ctx.consoleErrors, [], '页面加载期间出现 console error：' + ctx.consoleErrors.join(' | '));
-    return 'desktop、__cat、桌面输入均已就位，win7-card 未启用';
+    return 'desktop、__cat、桌面输入均已就位，win7-card=' + win7;
   });
   const expectedCommands = {
-    platform_flags: { win7: false }, load_settings: null, position_locked: false,
-    input_status: { granted: true, keys: false, mouse: false, keyboard: 'unsupported',
-      needs_permission: false, events: { keys: 0, buttons: 0 } },
-    update_status: { kind: 'idle' }, updater_configured: false, app_version: require('electron').app.getVersion(),
+    platform_flags: { win7 }, load_settings: null, position_locked: false,
+    input_status: { granted: true, keys: false, mouse: false, keyboard: 'unsupported', needs_permission: false },
+    update_status: null, updater_configured: true, app_version: require('electron').app.getVersion(),
+    autostart_status: { enabled: false, needs_approval: false, platform: 'windows' },
   };
   for (const [cmd, expected] of Object.entries(expectedCommands)) {
     await check('invoke ' + cmd, async () => {
@@ -195,18 +261,18 @@ async function run(ctx, check) {
       return JSON.stringify(expected);
     });
   }
-  for (const cmd of ['show_context_menu', 'open_settings']) {
+  for (const cmd of ['show_context_menu', 'install_update']) {
     await check('invoke ' + cmd, async () => {
       await invoke(cmd);
       return '页面调用已返回';
     });
   }
   const rejections = {
-    held_input_state: 'unsupported', install_update: '此 demo 不含自动更新',
+    open_input_monitoring: '只有 macOS 需要输入监控授权', reset_input_monitoring: '只有 macOS 需要输入监控授权',
+    open_link: '未知链接', open_login_items: 'unknown command: open_login_items',
     selftest_unknown: 'unknown command: selftest_unknown',
   };
-  for (const cmd of ['autostart_status', 'set_autostart', 'open_login_items', 'open_input_monitoring',
-    'reset_input_monitoring', 'restart_app', 'open_link']) rejections[cmd] = 'demo 未实现';
+  if (process.platform !== 'win32') rejections.held_input_state = 'unsupported';
   for (const [cmd, message] of Object.entries(rejections)) {
     await check('invoke ' + cmd, async () => {
       // 在页面里捕获 reject，避免 executeJavaScript 包装异常并丢失 reason。
@@ -215,6 +281,21 @@ async function run(ctx, check) {
       return reason;
     });
   }
+  await check('开机自启、任务管理器禁用和重新启用（桩）', async () => {
+    assert.equal((await invoke('set_autostart', { enabled: true })).enabled, true);
+    ctx.systemTest.launchItems[0].enabled = false;
+    ctx.systemTest.launchItems.push({ name: 'SillyCat', scope: 'user', enabled: true, args: [] });
+    assert.equal((await invoke('autostart_status')).enabled, false);
+    assert.equal((await invoke('set_autostart', { enabled: true })).enabled, true);
+    assert.equal((await invoke('set_autostart', { enabled: false })).enabled, false);
+  });
+  await check('已知链接和重启（桩）', async () => {
+    for (const target of ['github', 'douyin']) await invoke('open_link', { target });
+    assert.deepEqual(ctx.systemTest.openedLinks, ['https://github.com/S0u1/silly-cat',
+      'https://www.douyin.com/user/MS4wLjABAAAAgiL6r1k59SPVX7I3Hu2RImPW3Vs5RR2UUEjduDIP3jM']);
+    await invoke('restart_app');
+    assert.equal(ctx.systemTest.restarts, 1);
+  });
   await check('cursor_local', async () => {
     const cb = win.getContentBounds();
     const p = { x: cb.x + 22, y: cb.y + 15 };
@@ -222,6 +303,62 @@ async function run(ctx, check) {
     const c = await invoke('cursor_local');
     assert.deepEqual(c, { gx: p.x, gy: p.y, x: 22, y: 15 });
     return JSON.stringify(c);
+  });
+  await check('设置窗口的单实例、尺寸、IPC、事件与菜单检查更新', async () => {
+    await Promise.all([invoke('open_settings'), invoke('open_settings')]);
+    const settings = ctx.getSettingsWindow();
+    assert(settings && settings !== win && settings.isVisible());
+    const wc = settings.webContents;
+    const settingsPage = source => wc.executeJavaScript(source);
+    const mainBounds = win.getBounds();
+    try {
+      await click('设置…');
+      assert.equal(ctx.getSettingsWindow(), settings);
+      assert.equal(settings.getTitle(), '捣蛋猫 · 设置');
+      assert(!settings.isResizable() && !settings.isMaximizable() && !settings.isMinimizable());
+      assert.equal(await settingsPage('typeof __TAURI__.window.LogicalSize'), 'function');
+      await settingsPage('__TAURI__.window.getCurrentWindow().setSize(new __TAURI__.dpi.LogicalSize(400, 370))');
+      assert.deepEqual(settings.getContentSize(), [400, 370]);
+      assert.deepEqual(win.getBounds(), mainBounds);
+      await settingsPage(`(async () => {
+        window.eventsSeen = [];
+        for (const name of ['silly:settings','silly:lock','silly:update','silly:key','silly:button'])
+          await __TAURI__.event.listen(name, e => eventsSeen.push(e.event));
+        await __TAURI__.core.invoke('save_settings', { settings: { size: 1, cat: 'cow' } });
+      })()`);
+      assert.deepEqual(await settingsPage("__TAURI__.core.invoke('load_settings')"), { size: 1, cat: 'cow' });
+      await click('锁定位置');
+      await click('锁定位置');
+      ctx.send('silly:key', { code: 'KeyA', down: false });
+      ctx.send('silly:button', { button: 0, down: false });
+      await click('检查更新…');
+      assert.equal(ctx.getSettingsWindow(), settings);
+      await until('设置窗口收到更新和输入事件', async () =>
+        await settingsPage("['silly:key','silly:button','silly:update'].every(e => eventsSeen.includes(e))"));
+      assert.equal(await settingsPage("eventsSeen.some(e => e === 'silly:settings' || e === 'silly:lock')"), false);
+      assert.equal((await invoke('update_status')).kind, 'result');
+      assert.equal(ctx.callerWindow({ sender: wc, senderFrame: wc.mainFrame }), settings);
+      assert.equal(ctx.callerWindow({ sender: wc, senderFrame: { url: wc.getURL() } }), null);
+      assert.equal(ctx.callerWindow({ sender: contents, senderFrame: wc.mainFrame }), null);
+      for (const url of [contents.getURL(), 'https://example.invalid/', 'file:///elsewhere/settings.html']) {
+        assert.equal(ctx.isPage(url, ctx.settingsPath), false);
+      }
+      const { BrowserWindow } = require('electron');
+      const other = new BrowserWindow({ show: false, webPreferences: {
+        preload: path.join(__dirname, 'preload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false
+      } });
+      try {
+        await other.loadFile(ctx.settingsPath);
+        const reason = await other.webContents.executeJavaScript(
+          "__TAURI__.core.invoke('load_settings').then(() => '', e => e.message)");
+        assert.equal(reason, 'unauthorized IPC sender');
+      } finally { other.destroy(); }
+      await settingsPage("__TAURI__.window.getCurrentWindow().close(); true");
+      await until('设置窗口关闭', () => settings.isDestroyed());
+      assert(!win.isDestroyed() && win.isVisible());
+    } finally {
+      if (!settings.isDestroyed()) settings.destroy();
+    }
   });
   await check('preview_cat_size', async () => {
     const before = win.getBounds();
@@ -238,9 +375,11 @@ async function run(ctx, check) {
     }
   });
   await check('close 主窗口', async () => {
+    let requested = false;
+    win.once('close', event => { requested = true; event.preventDefault(); });
     await windowCall('close');
-    assert(!win.isDestroyed() && win.isVisible(), '主窗口被关闭或隐藏');
-    return '窗口仍可见';
+    await until('主窗口收到 close', () => requested);
+    return '已收到关闭请求并由自测截住';
   });
 
   async function eventRoundtrip(name, first, second, expected) {
@@ -383,7 +522,7 @@ async function run(ctx, check) {
   });
   await check('菜单模板及动作', async () => {
     assert.deepEqual(ctx.menuTemplate().map(entry => entry.label || entry.type),
-      ['显示/隐藏猫', '锁定位置', '重置位置', '打开日志文件夹', 'separator', '退出']);
+      ['设置…', '检查更新…', '显示/隐藏猫', '锁定位置', '重置位置', '打开日志文件夹', 'separator', '退出']);
     await lock(false);
     win.showInactive();
     try {
@@ -401,7 +540,7 @@ async function run(ctx, check) {
       await delay(500);
       assert.deepEqual(readState('window-position'), position(ctx.defaultPos()));
       await click('打开日志文件夹');
-      assert.equal(ctx.getOpenedFolder(), ctx.runLog().file);
+      assert.equal(ctx.getOpenedFolder(), userData);
       return '显示、隐藏、锁定、重置和打开日志位置回调通过，退出项仅检查标签';
     } finally {
       win.showInactive();
@@ -416,7 +555,11 @@ async function run(ctx, check) {
     fs.writeFileSync(path.join(out, 'capture-raw.png'), raw.png);
     fs.writeFileSync(path.join(out, 'capture-gray.png'), composite(raw, false));
     fs.writeFileSync(path.join(out, 'capture-checker.png'), composite(raw, true));
-    return verifyTransparency(raw);
+    if (!win7) return verifyTransparency(raw);
+    const center = Math.floor(raw.height / 2) * raw.width + Math.floor(raw.width / 2);
+    assert.equal(raw.bitmap[center * 4 + 3], 255);
+    assert.equal(await page('getComputedStyle(document.body).backgroundColor'), 'rgb(239, 230, 214)');
+    return 'Win7 无桌面合成，卡片背景色和不透明像素通过';
   });
   await check('调试边框截图', async () => {
     const key = await ctx.applyDebugCSS();
@@ -433,50 +576,27 @@ async function run(ctx, check) {
       await contents.removeInsertedCSS(key);
     }
   });
-  await check('运行日志：桌面优先、退回、BOM、CRLF', async () => {
-    const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'sillycat-logtest-'));
-    const bytes = file => fs.readFileSync(file);
-    const hasBom = buf => buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
-    // 1. 自检时主日志写在 userData（不碰真实桌面），文件名固定，带 BOM，没有单独的 LF
-    const main = ctx.runLog();
-    assert.equal(path.basename(main.file), ctx.RUN_LOG_NAME);
-    assert.equal(path.basename(main.file), 'SillyCatDemo-run.log');
-    const mainBuf = bytes(main.file);
-    assert(hasBom(mainBuf), '主日志开头没有 UTF-8 BOM');
-    assert(!/[^\r]\n/.test(mainBuf.toString('utf8')), '主日志里有单独的 LF，Win7 记事本会显示成一行');
-    // 2. 桌面可写：直接选桌面，不退回
-    const desktop = path.join(tmp, 'Desktop');
-    const ok = ctx.pickRunLog(desktop, path.join(tmp, 'userData'));
-    assert.deepEqual([ok.file, ok.fellBack], [path.join(desktop, 'SillyCatDemo-run.log'), false]);
-    ctx.appendLogLine(ok.file, '中文测试 line1\nline2');
-    const buf = bytes(ok.file);
-    assert(hasBom(buf), '新建日志没有 BOM');
-    assert.equal(buf.slice(3).toString('utf8'), '中文测试 line1\r\nline2\r\n');
-    ctx.appendLogLine(ok.file, 'again');
-    assert(hasBom(bytes(ok.file)), '追加后 BOM 丢了');
-    assert.equal(bytes(ok.file).toString('utf8').split('\uFEFF').length, 2, 'BOM 只能在开头出现一次');
-    // 3. 桌面写不了（路径穿过一个普通文件）：退回 userData，note 里写明
-    const blocker = path.join(tmp, 'blocker');
-    fs.writeFileSync(blocker, 'x');
-    const fallbackDir = path.join(tmp, 'fallback');
-    const fell = ctx.pickRunLog(path.join(blocker, 'Desktop'), fallbackDir);
-    assert.deepEqual([fell.file, fell.fellBack], [path.join(fallbackDir, 'SillyCatDemo-run.log'), true]);
-    assert(fell.note.includes('桌面写不了') && fell.note.includes(fallbackDir), '退回说明里缺少原因或位置：' + fell.note);
-    // 4. 取不到桌面路径、桌面和退回目录都写不了
-    assert.equal(ctx.pickRunLog(undefined, fallbackDir).fellBack, true);
-    const dead = ctx.pickRunLog(path.join(blocker, 'a'), path.join(blocker, 'b'));
-    assert.equal(dead.file, null);
-    assert(dead.note.includes('这里也写不了'));
-    // 5. 超过 512KB 时截断，重写后仍然带 BOM、从完整一行开始
-    const big = path.join(tmp, 'big.log');
-    ctx.appendLogLine(big, 'head');
-    fs.appendFileSync(big, Buffer.alloc(600 * 1024, 'a').toString() + '\r\n');
-    ctx.appendLogLine(big, 'after rotate');
-    const rotated = bytes(big);
-    assert(hasBom(rotated) && rotated.length < 300 * 1024, '截断后应当带 BOM 且小于 300KB，实际 ' + rotated.length);
-    assert(rotated.toString('utf8').endsWith('after rotate\r\n'));
-    fs.rmSync(tmp, { recursive: true, force: true });
-    return '自检日志带 BOM 且全是 CRLF；桌面可写时选桌面，写不了时退回并写明原因，两处都写不了返回 null；超 512KB 截断后仍有 BOM';
+  await check('运行日志和错误副本', () => {
+    const root = fs.mkdtempSync(path.join(userData, 'log-test-'));
+    const desktop = path.join(root, 'Desktop');
+    fs.mkdirSync(desktop);
+    try {
+      assert.equal(ctx.runLog().file, path.join(userData, 'silly-cat.log'));
+      const file = path.join(root, 'silly-cat.log');
+      ctx.appendLogLine(file, '中文\n第二行');
+      assert.equal(fs.readFileSync(file, 'utf8'), '\uFEFF中文\r\n第二行\r\n');
+      fs.appendFileSync(file, Buffer.alloc(256 * 1024, 'x'));
+      const original = fs.readFileSync(file);
+      ctx.appendLogLine(file, 'fatal');
+      assert.deepEqual(fs.readFileSync(file + '.old'), original);
+      assert.deepEqual(fs.readdirSync(desktop), []);
+      assert(ctx.exportFatalLog(desktop, file, 'fallback'));
+      const copy = path.join(desktop, '捣蛋猫兼容版-错误日志.txt');
+      assert.equal(fs.readFileSync(copy, 'utf8'), '\uFEFFfatal\r\n');
+      assert(ctx.exportFatalLog(desktop, null, userData + ' failed'));
+      assert.equal(fs.readFileSync(copy, 'utf8'), '\uFEFF<userData> failed');
+      assert.equal(ctx.exportFatalLog(file, file, 'failed'), false);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
   await check('日志不记录路径', async () => {
     const os = require('os');
@@ -518,4 +638,47 @@ async function run(ctx, check) {
   ctx.setCursor(null);
 }
 
-module.exports = { run, checkKeycodes };
+module.exports = { run, checkKeycodes, checkContract };
+
+if (require.main === module) {
+  // 此入口不启动 Electron。系统调用必须由 --selftest 换成桩。
+  assert(process.argv.includes('--selftest'));
+  const main = require('./main');
+  const { pathToFileURL } = require('url');
+  const dir = path.resolve(__dirname, '..', 'prototype');
+  const contract = checkContract(dir);
+  const registered = {};
+  let bridge;
+  // 使用真实 preload 注册接口，避免两份各自维护的契约列表同时漏掉新 API。
+  require('vm').runInNewContext(fs.readFileSync(path.join(__dirname, 'preload.js'), 'utf8'), {
+    require: name => {
+      assert.equal(name, 'electron');
+      return { ipcRenderer: { on: (name, callback) => { registered[name] = callback; } },
+        contextBridge: { exposeInMainWorld: (name, value) => { assert.equal(name, '__TAURI__'); bridge = value; } } };
+    },
+    document: { addEventListener() {} }, window: { addEventListener() {} }
+  });
+  for (const property of contract.properties) {
+    assert.notEqual(property.split('.').reduce((obj, key) => obj?.[key], bridge), undefined, property);
+  }
+  for (const method of contract.methods) assert.equal(typeof bridge.window.getCurrentWindow()[method], 'function');
+  assert.equal(typeof registered['silly:event'], 'function');
+  assert.deepEqual(main.menuTemplate().map(e => e.label || e.type),
+    ['设置…', '检查更新…', '显示/隐藏猫', '锁定位置', '重置位置', '打开日志文件夹', 'separator', '退出']);
+  for (const filename of ['index.html', 'settings.html']) {
+    const file = path.join(dir, filename);
+    assert(main.isPage(pathToFileURL(file).href, file));
+    assert(!main.isPage(pathToFileURL(path.join(dir, 'different.html')).href, file));
+    assert(!main.isPage('https://example.invalid/' + filename, file));
+  }
+  assert.equal(main.invokeCommand('set_autostart', { enabled: true }).enabled, true);
+  main.systemTest.launchItems[0].enabled = false;
+  assert.equal(main.invokeCommand('autostart_status').enabled, false);
+  assert.equal(main.invokeCommand('set_autostart', { enabled: false }).enabled, false);
+  main.invokeCommand('open_link', { target: 'github' });
+  assert.deepEqual(main.systemTest.openedLinks, ['https://github.com/S0u1/silly-cat']);
+  assert.throws(() => main.invokeCommand('open_link', { target: 'other' }), /未知链接/);
+  main.invokeCommand('restart_app');
+  assert.equal(main.systemTest.restarts, 1);
+  console.log('HEADLESS CONTRACT PASS', contract);
+}

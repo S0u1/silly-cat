@@ -1,58 +1,22 @@
-﻿; SillyCat Electron demo: 安装阶段日志。
-; electron-builder 通过 build/installer.nsh 自动包含本文件（nsis.include 默认值）。
-;
-; 目的：测试者装不上或中途关窗口时，也能留下日志发回来。日志直接放在当前用户的桌面：SillyCatDemo-install.log
-; （桌面写不了就退回 %APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log）。每次安装都写，不只在出错时写；每次安装追加一段。
-; 隐私：日志里不写任何文件路径（路径里会带 Windows 用户名）：安装器只记文件名，目录只记特征（盘符、是否含非 ASCII 字符、是否含空格、长度、是否在 %LOCALAPPDATA% / Program Files 下），
-; 详情列表里带路径的行整行省略。
-; 编码：UTF-8 带 BOM（EF BB BF），行尾 CRLF，Win7 自带记事本能正确显示中文。NSIS 3.0.4.1 没有写 UTF-8 的指令，
-; 所以用 WideCharToMultiByte 转码，再用 kernel32::WriteFile 直接往 FileOpen 返回的句柄里写。
-;
-; 注意（对照 app-builder-lib 26.x 自带模板确认过）：
-;  - 模板没有定义 .onInstSuccess / .onInstFailed / .onGUIEnd，这里可以定义；.onUserAbort 是 MUI2 定义的，改用 MUI_CUSTOMFUNCTION_ABORT；升级 electron-builder 后要重新核对，重复定义 makensis 会报错。
-;  - 绝对不能定义 customCheckAppRunning、customUnInstallCheck、customUnInstallCheckCurrentUser、customWelcomePage、customFinishPage 这类宏：
-;    模板用 !ifmacrodef 判断，一旦定义就会「替换」自带逻辑而不是追加。这里只用纯追加的钩子：preInit、customInit、customFiles_x64、customInstall。
-;  - 模板在非静默安装时对安装段执行了 SetDetailsPrint none，所以安装器「详情」列表里基本没有内容；
-;    因此除了转储详情列表，还在各阶段写「断点」行，好看出安装停在了哪一步。
-;  - 卸载器是用同一份脚本另编一遍（定义了 BUILD_UNINSTALLER），那一遍整体跳过。
+﻿; 捣蛋猫兼容版安装日志。仅安装失败时复制到桌面。
+; PRODUCT_FILENAME 保持 ASCII，PRODUCT_NAME 用于向导标题与提示。
+!define /redef PRODUCT_NAME "捣蛋猫 兼容版"
 
 !ifndef BUILD_UNINSTALLER
 
 !define SC_LOG_DIR "SillyCatElectronDemo"
-!define SC_LOG_NAME "SillyCatDemo-install.log"
+!define SC_LOG_NAME "install.log"
 !define SC_LV_GETITEMCOUNT 0x1004
 !define SC_LV_GETITEMTEXTW 0x1073
 !define SC_LV_BUFCHARS 1024
 !define SC_LV_BUFBYTES 2048
 
 Var scLogPath
-Var scLogFellBack
-
-; 求日志路径（只做一次）：优先当前用户桌面 $DESKTOP\${SC_LOG_NAME}。
-; 先 SetShellVarContext current，保证 $DESKTOP 是当前用户的桌面而不是公共桌面（本安装器只装当前用户，这里等于默认值，没有副作用）。
-; 桌面写不了（FileOpen 失败）就退回 %APPDATA%\${SC_LOG_DIR}\${SC_LOG_NAME}，并置 $scLogFellBack = 1。
 Function scInitPath
   StrCmp $scLogPath "" 0 sc_path_done
-  Push $0
-  Push $1
   SetShellVarContext current
-  StrCpy $scLogFellBack "0"
-  StrCpy $scLogPath "$DESKTOP\${SC_LOG_NAME}"
-  ClearErrors
-  FileOpen $1 "$scLogPath" a
-  IfErrors sc_path_fallback
-  FileClose $1
-  Goto sc_path_pop
-  sc_path_fallback:
-  StrCpy $scLogFellBack "1"
-  ReadEnvStr $0 APPDATA
-  StrCmp $0 "" 0 +2
-  StrCpy $0 "$APPDATA"
-  CreateDirectory "$0\${SC_LOG_DIR}"
-  StrCpy $scLogPath "$0\${SC_LOG_DIR}\${SC_LOG_NAME}"
-  sc_path_pop:
-  Pop $1
-  Pop $0
+  CreateDirectory "$APPDATA\${SC_LOG_DIR}"
+  StrCpy $scLogPath "$APPDATA\${SC_LOG_DIR}\${SC_LOG_NAME}"
   sc_path_done:
 FunctionEnd
 
@@ -261,22 +225,9 @@ Function scLogInstDir
   Pop $0
 FunctionEnd
 
-; 日志写在哪（桌面，还是退回到 %APPDATA%）
-Function scLogLocation
-  StrCmp $scLogFellBack "1" sc_loc_fellback
-  Push "log location: Desktop"
-  Call scAppendLine
-  Return
-  sc_loc_fellback:
-  Push "log location: %APPDATA%\${SC_LOG_DIR} (the Desktop was not writable)"
-  Call scAppendLine
-FunctionEnd
-
 ; 安装器的文件名（不含目录）、所在目录的特征、是否静默、安装目录的特征。不写命令行：它的第一段是安装器自己的完整路径。
 Function scLogContext
   Push $0
-  Push "installer file: $EXEFILE"
-  Call scAppendLine
   Push "$EXEDIR"
   Call scDescribePath
   Pop $0
@@ -305,6 +256,7 @@ Function scDumpDetails
   Push $5
   Push $6
   Push $7
+  IfSilent sc_dump_none
   FindWindow $0 "#32770" "" $HWNDPARENT
   GetDlgItem $0 $0 1016
   StrCmp $0 0 sc_dump_none
@@ -322,10 +274,10 @@ Function scDumpDetails
   IntCmp $2 $4 sc_dump_done 0 sc_dump_done
   System::Call 'user32::SendMessageW(i r0, i ${SC_LV_GETITEMTEXTW}, i r2, i r1)'
   System::Call '*$3(&t${SC_LV_BUFCHARS} .r5)'
-  StrCpy $7 ":\"
+  StrCpy $7 "\"
   System::Call 'shlwapi::StrStrIW(w r5, w r7) i .r6'
   StrCmp $6 0 0 sc_dump_pathline
-  StrCpy $7 "\\"
+  StrCpy $7 "/"
   System::Call 'shlwapi::StrStrIW(w r5, w r7) i .r6'
   StrCmp $6 0 sc_dump_plain
   sc_dump_pathline:
@@ -366,7 +318,6 @@ FunctionEnd
   Call scInitPath
   Push "============================================================"
   Call scAppendLine
-  Call scLogLocation
   !insertmacro scStageMacro "installer started (SillyCatElectronDemo ${VERSION})"
   Call scLogSysInfo
   Call scLogContext
@@ -406,12 +357,14 @@ Function .onInstFailed
   !insertmacro scStageMacro "RESULT: FAILED (install section aborted)"
   Call scLogContext
   Call scDumpDetails
-  Call scInitPath
-  StrCmp $scLogFellBack "1" sc_fail_fellback
-  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n请把桌面上的 ${SC_LOG_NAME} 发回给我们（如果猫启动过，再加桌面上的 SillyCatDemo-run.log）。" /SD IDOK
+  SetShellVarContext current
+  ClearErrors
+  CopyFiles /SILENT "$scLogPath" "$DESKTOP\捣蛋猫兼容版-安装日志.txt"
+  IfErrors sc_fail_fallback
+  MessageBox MB_OK|MB_ICONEXCLAMATION "捣蛋猫 兼容版安装失败。请查看桌面上的 捣蛋猫兼容版-安装日志.txt。" /SD IDOK
   Goto sc_fail_done
-  sc_fail_fellback:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n桌面写不了日志，请把这个文件发回给我们：$\r$\n%APPDATA%\${SC_LOG_DIR}\${SC_LOG_NAME}$\r$\n（如果猫启动过，再加同一文件夹或桌面上的 SillyCatDemo-run.log）。" /SD IDOK
+  sc_fail_fallback:
+  MessageBox MB_OK|MB_ICONEXCLAMATION "捣蛋猫 兼容版安装失败。请到 %APPDATA%\${SC_LOG_DIR}\ 找 install.log。" /SD IDOK
   sc_fail_done:
 FunctionEnd
 

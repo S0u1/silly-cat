@@ -1,73 +1,55 @@
 'use strict';
 
-const { app, BrowserWindow, dialog, ipcMain, Menu, Tray, nativeImage, shell, screen } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, Tray, nativeImage, shell, screen, systemPreferences, net, session } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { pathToFileURL } = require('url');
+const { fileURLToPath } = require('url');
 
 const selftest = process.argv.includes('--selftest');
 const debug = process.env.SILLYCAT_DEBUG === '1';
-const indexPath = app.isPackaged
+const indexPath = app?.isPackaged
   ? path.join(process.resourcesPath, 'prototype', 'index.html')
   : path.join(__dirname, '..', 'prototype', 'index.html');
-const indexURL = pathToFileURL(indexPath).href;
-const iconPath = app.isPackaged
+const settingsPath = path.join(path.dirname(indexPath), 'settings.html');
+const iconPath = app?.isPackaged
   ? path.join(process.resourcesPath, 'tray.png')
   : path.join(__dirname, '..', 'src-tauri', 'icons', '32x32.png');
 const border = 'html::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:2147483647;outline:2px solid #ff00ff;outline-offset:-2px;box-shadow:inset 0 0 0 4px rgba(0,255,255,.55)}';
-let userData, win, hook, out, watchdog, debugKey;
-let loaded = false, started = false, failed = false, reported = false;
+let userData, win, settingsWin, settingsLoading, updater, out, watchdog, debugKey;
+const hook = require('./input-hook');
+let win7Card = false;
+let cardGeometry;
+let loaded = false, failed = false, reported = false;
 const results = [], consoleErrors = [];
 
-const RUN_LOG_NAME = 'SillyCatDemo-run.log';
-const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
-let runLog;
-
-// 运行日志放桌面，方便测试者找到并发回。app.getPath('desktop') 会跟随系统的桌面重定向（OneDrive、自定义路径等），
-// 不要手拼 %USERPROFILE%\Desktop。桌面写不了（无权限、目录不存在）就退回 fallbackDir（userData），note 里写明原因。
-function pickRunLog(desktopDir, fallbackDir) {
-  const attempt = (dir) => {
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, RUN_LOG_NAME);
-    fs.closeSync(fs.openSync(file, 'a'));
-    return file;
-  };
-  let failure;
-  try {
-    if (!desktopDir) throw new Error('取不到桌面路径');
-    return { file: attempt(desktopDir), fellBack: false, note: '' };
-  } catch (e) { failure = e; }
-  const note = '桌面写不了（' + (failure.code || failure.message) + '），日志改存到 ' + fallbackDir;
-  try { return { file: attempt(fallbackDir), fellBack: true, note }; }
-  catch (e) { return { file: null, fellBack: true, note: note + '，这里也写不了（' + (e.code || e.message) + '）' }; }
-}
+const RUN_LOG_NAME = 'silly-cat.log';
+const ERROR_LOG_NAME = '捣蛋猫兼容版-错误日志.txt';
 
 function currentRunLog() {
-  if (runLog) return runLog;
-  const fallbackDir = userData || os.tmpdir();
-  if (selftest) {
-    runLog = { file: path.join(fallbackDir, RUN_LOG_NAME), fellBack: false, note: '' }; // 自检不碰真实桌面
-  } else {
-    let desktop;
-    try { desktop = app.getPath('desktop'); } catch (_) {}
-    runLog = pickRunLog(desktop, fallbackDir);
-  }
-  return runLog;
+  return { file: userData && path.join(userData, RUN_LOG_NAME) };
 }
 
-// UTF-8 带 BOM（Win7 自带记事本靠 BOM 认 UTF-8，否则中文乱码）、CRLF 换行（旧记事本不认单独的 LF）。
-// 超过 512KB 时保留尾部 256KB（重写时补回 BOM）。
 function appendLogLine(file, text) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
   let size = 0;
-  try { size = fs.statSync(file).size; } catch (_) {}
-  if (size > 512 * 1024) {
-    const tail = fs.readFileSync(file).slice(-256 * 1024);
-    fs.writeFileSync(file, Buffer.concat([BOM, tail.slice(tail.indexOf(10) + 1)]));
-  } else if (size === 0) {
-    fs.writeFileSync(file, BOM);
+  try { size = fs.statSync(file).size; } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
   }
-  fs.appendFileSync(file, text.replace(/\r?\n/g, '\r\n') + '\r\n');
+  if (size > 256 * 1024) {
+    fs.renameSync(file, file + '.old');
+    size = 0;
+  }
+  fs.appendFileSync(file, (size ? '' : '\uFEFF') + text.replace(/\r?\n/g, '\r\n') + '\r\n');
+}
+
+function exportFatalLog(desktop, file, detail) {
+  let body;
+  try { body = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''); } catch (_) {}
+  try {
+    fs.writeFileSync(path.join(desktop, ERROR_LOG_NAME), '\uFEFF' + (body || scrub(detail).replace(/\r?\n/g, '\r\n')));
+    return true;
+  } catch (_) { return false; }
 }
 
 // ---- 日志里不记录任何会带用户名的路径 ----
@@ -100,17 +82,17 @@ function knownDirs() {
 function scrub(text) {
   let out = String(text);
   for (const [value, token] of knownDirs()) out = out.split(value).join(token);
-  // 用户名只在作为路径的一级目录出现时才换（用户名叫 user 之类时，不能把 userData 这样的词也换掉）
   try {
     const name = os.userInfo().username;
-    if (name && name.length >= 2) {
-      out = out.replace(new RegExp('([\\\\/])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\\\/])', 'gi'), '$1<user>');
+    if (name) {
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp('(?<![\\w])' + escaped + '(?![\\w])', 'gi'), '<user>');
     }
   } catch (_) {}
+  // 完整目录分量可以有空格。仅保留文件名，用于定位出错的模块。
   return out
     .replace(/file:\/\/\/?(?:[^\s'")\]]*\/)?([^\/\s'")\]]*)/gi, '<file>/$1')
-    .replace(/[A-Za-z]:[\\/](?:[^\\/\s'"|*?)\]]+[\\/])*([^\\/\s'"|*?)\]]*)/g, '<path>\\$1')
-    .replace(/\\\\[^\s\\]+\\(?:[^\\/\s'"|*?)\]]+[\\/])*([^\\/\s'"|*?)\]]*)/g, '<path>\\$1');
+    .replace(/(?:[A-Za-z]:[\\/]|\\\\)(?:[^\\/\r\n'"|*?)\]]+[\\/])*([^\\/\s'"|*?)\]]*)/g, '<path>\\$1');
 }
 
 // 只描述路径的特征，不带路径本身：盘符、有没有非 ASCII 字符（中文目录常见问题）、有没有空格、长度
@@ -150,24 +132,29 @@ function finishTest() {
 function fatal(title, detail) {
   if (failed) return;
   failed = true;
-  const info = currentRunLog();
-  // 对话框里不写带用户名的完整路径：桌面上的日志直接说「桌面上的」；退回 userData 时 Windows 上就是 %APPDATA%\SillyCatElectronDemo\
-  const ask = info.fellBack
-    ? '桌面写不了日志，请到 %APPDATA%\\SillyCatElectronDemo\\ 里找 SillyCatDemo-run.log 发回来（装过的话再加 SillyCatDemo-install.log）。'
-    : '请把桌面上的 SillyCatDemo-run.log（装过的话再加桌面上的 SillyCatDemo-install.log）发回来。';
-  const message = title + '\n' + scrub(detail) + '\n' + ask;
-  log('FATAL', message.replace(/\n/g, ' '));
+  const reason = title + '\n' + scrub(detail);
+  log('FATAL', reason);
+  let desktop;
+  try { desktop = selftest ? userData : app.getPath('desktop'); } catch (_) {}
+  const exported = exportFatalLog(desktop, currentRunLog().file, reason);
+  const hint = exported ? '请查看桌面上的 ' + ERROR_LOG_NAME
+    : '请到 %APPDATA%\\SillyCatElectronDemo\\ 找 silly-cat.log';
+  const message = reason + '\n\n' + hint;
   if (selftest) {
     results.push({ name: title, ok: false, detail: String(detail) });
     finishTest();
   } else {
-    try { dialog.showErrorBox(title, message); } finally { app.exit(1); }
+    try { dialog.showErrorBox('捣蛋猫 兼容版', message); } finally { app.exit(1); }
   }
 }
 
 function send(name, payload) {
-  if (loaded && win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
-    win.webContents.send('silly:event', name, payload);
+  const targets = [loaded && win];
+  if (['silly:key', 'silly:button', 'silly:update'].includes(name)) targets.push(settingsWin);
+  for (const target of targets) {
+    if (target && !target.isDestroyed() && !target.webContents.isDestroyed()) {
+      target.webContents.send('silly:event', name, payload);
+    }
   }
 }
 function applyDebugCSS() { return win.webContents.insertCSS(border); }
@@ -175,11 +162,7 @@ function gpuStatus() {
   log('INFO', 'GPU feature status ' + JSON.stringify(app.getGPUFeatureStatus()));
 }
 function runtimeInfo() {
-  const info = currentRunLog();
   log('INFO', '========== 新的一次启动 ==========');
-  log('INFO', '运行日志位置 ' + (!info.file ? '(没能写出)' : info.fellBack ? '用户数据目录（桌面写不了）' : '桌面') +
-    (info.file ? ' ' + describePath(path.dirname(info.file)) : ''));
-  if (info.fellBack) log('WARN', info.note);
   const v = process.versions;
   const cpus = os.cpus() || [];
   log('INFO', app.getName() + ' ' + app.getVersion() + ' Electron=' + v.electron +
@@ -198,6 +181,88 @@ function runtimeInfo() {
   log('INFO', 'setIgnoreMouseEvents forward=' + (process.env.SILLYCAT_NO_FORWARD !== '1'));
 }
 
+function isPage(url, expectedPath) {
+  try {
+    const parsed = new URL(url);
+    // Windows 路径不区分大小写：盘符或目录大小写和 Chromium 回报的不一致时，不能把整页 IPC 误拒掉。
+    const norm = p => process.platform === 'win32' ? path.resolve(p).toLowerCase() : path.resolve(p);
+    return parsed.protocol === 'file:' && !parsed.host && !parsed.search &&
+      norm(fileURLToPath(parsed)) === norm(expectedPath);
+  } catch (_) { return false; }
+}
+
+function secureWindow(window, pagePath) {
+  const wc = window.webContents;
+  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
+  wc.on('will-navigate', (event, url) => {
+    if (!isPage(url, pagePath)) event.preventDefault();
+  });
+  wc.once('render-process-gone', (_, details) => fatal('页面进程已退出', JSON.stringify(details)));
+  window.on('page-title-updated', event => event.preventDefault());
+}
+
+function webPreferences() {
+  return {
+    preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false,
+    sandbox: true, backgroundThrottling: false, spellcheck: false, devTools: debug || selftest
+  };
+}
+
+function shapeCard() {
+  if (!win7Card || !liveWindow()) return;
+  const { width, height } = win.getContentBounds();
+  // Windows 应用区域后可能再次发同尺寸 resize 消息。
+  if (width === cardGeometry?.width && height === cardGeometry?.height) return;
+  cardGeometry = { width, height };
+  const radius = Math.min(18, Math.floor(Math.min(width, height) / 2));
+  const rects = [{ x: 0, y: radius, width, height: height - 2 * radius }];
+  for (let y = 0; y < radius; y++) {
+    const inset = Math.round(radius - Math.sqrt(radius ** 2 - (radius - y - 0.5) ** 2));
+    const row = { x: inset, width: width - 2 * inset, height: 1 };
+    rects.push({ ...row, y }, { ...row, y: height - 1 - y });
+  }
+  try { win.setShape(rects); } catch (error) {
+    cardGeometry = undefined;
+    log('WARN', '设置卡片圆角失败 ' + error.message);
+  }
+}
+
+async function showSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    await settingsLoading;
+    if (settingsWin && !settingsWin.isDestroyed()) {
+      if (settingsWin.isMinimized()) settingsWin.restore();
+      settingsWin.show();
+      settingsWin.focus();
+    }
+    return;
+  }
+  const area = screen.getDisplayMatching(win.getBounds()).workArea;
+  const height = Math.max(1, Math.min(1288, area.height - 40));
+  const window = new BrowserWindow({
+    width: 400, height, useContentSize: true, title: '捣蛋猫 · 设置',
+    show: false, frame: true, skipTaskbar: false, resizable: false,
+    maximizable: false, minimizable: false, fullscreenable: false, webPreferences: webPreferences()
+  });
+  settingsWin = window;
+  secureWindow(window, settingsPath);
+  if (process.platform !== 'darwin') {
+    window.removeMenu();
+    window.setContentSize(400, height);
+  }
+  const bounds = window.getBounds();
+  window.setPosition(Math.round(area.x + (area.width - bounds.width) / 2),
+    Math.round(area.y + (area.height - bounds.height) / 2));
+  window.once('closed', () => { if (settingsWin === window) settingsWin = undefined; });
+  settingsLoading = window.loadFile(settingsPath);
+  try {
+    await settingsLoading;
+    if (!window.isDestroyed()) { window.show(); window.focus(); }
+  } catch (error) {
+    if (!window.isDestroyed()) { window.destroy(); throw error; }
+  }
+}
+
 async function ready() {
   if (process.platform === 'darwin') app.dock.hide();
   gpuStatus();
@@ -208,22 +273,24 @@ async function ready() {
   if (!fs.existsSync(indexPath)) throw new Error('找不到猫页面 ' + indexPath);
 
   const { bounds, source } = initialBounds();
+  win7Card = process.platform === 'win32' && /^6\.1(?:\.|$)/.test(os.release()) && !systemPreferences.isAeroGlassEnabled();
+  updater = require('./updater').createElectronUpdater({
+    app, net, session, shell, emit: notice => send('silly:update', notice), settings: loadSettings(), selftest
+  });
   win = new BrowserWindow({
-    ...bounds, useContentSize: true, frame: false, transparent: true, backgroundColor: '#00000000',
+    ...bounds, useContentSize: true, title: '捣蛋猫 兼容版', frame: false, transparent: !win7Card,
+    backgroundColor: win7Card ? '#efe6d6' : '#00000000',
     hasShadow: false, alwaysOnTop: true, skipTaskbar: true, resizable: false,
     maximizable: false, minimizable: false, fullscreenable: false, focusable: false, show: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false,
-      sandbox: true, backgroundThrottling: false, spellcheck: false, devTools: debug || selftest
-    }
+    webPreferences: webPreferences()
   });
+  if (win7Card) { shapeCard(); win.on('resize', shapeCard); }
   win.on('move', schedulePosition);
   win.setAlwaysOnTop(true, 'screen-saver');
   log('INFO', 'window created ' + JSON.stringify({ bounds: win.getBounds(),
     contentBounds: win.getContentBounds(), visible: win.isVisible(), source }));
   const wc = win.webContents;
-  wc.setWindowOpenHandler(() => ({ action: 'deny' }));
-  wc.on('will-navigate', (event, url) => { if (url !== indexURL) event.preventDefault(); });
+  secureWindow(win, indexPath);
   wc.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
     (_, callback) => callback({ cancel: true }));
   wc.on('did-start-loading', () => { loaded = false; });
@@ -231,7 +298,6 @@ async function ready() {
     log('ERROR', 'did-fail-load ' + code + ' ' + desc + ' ' + url);
     if (mainFrame) fatal('猫页面加载失败', code + ' ' + desc + ' ' + url);
   });
-  wc.once('render-process-gone', (_, details) => fatal('猫页面进程已退出', JSON.stringify(details)));
   for (const event of ['unresponsive', 'responsive']) win.on(event, () => log('WARN', event));
   let messages = 0;
   wc.on('console-message', (_, level, message) => {
@@ -252,18 +318,16 @@ async function ready() {
   await win.loadFile(indexPath);
   if (debug) debugKey = await applyDebugCSS();
   if (process.platform === 'win32' && !selftest) {
-    hook = require('./input-hook');
     hook.start({ log, onKey: payload => send('silly:key', payload), onButton: payload => {
       if (payload.button === 0 && !payload.down) endDrag();
       send('silly:button', payload);
     } });
   }
-  log('INFO', 'hook ' + JSON.stringify(hook ? hook.status() : { started: false, reason: selftest ? 'selftest' : process.platform }));
+  log('INFO', 'hook ' + JSON.stringify(hook.status()));
   if (debug) setInterval(() => {
-    const { keys, buttons } = inputStatus().events;
+    const { keys, buttons } = hook.status();
     log('INFO', 'hook counts ' + JSON.stringify({ keys, buttons }));
   }, 10000);
-  started = true;
   if (selftest) {
     async function check(name, test) {
       try { results.push({ name, ok: true, detail: (await test()) || '通过' }); }
@@ -271,18 +335,22 @@ async function ready() {
     }
     await require('./selftest').run({ win, out, userData, send, setCursor, menuTemplate, defaultPos,
       getIgnore, isDragging, consoleErrors, applyDebugCSS, debugKey, getOpenedFolder,
-      runLog: currentRunLog, pickRunLog, appendLogLine, RUN_LOG_NAME, scrub, describePath, knownDirs }, check);
+      getSettingsWindow: () => settingsWin, callerWindow, isPage, settingsPath, systemTest, indexPath,
+      runLog: currentRunLog, exportFatalLog, appendLogLine, RUN_LOG_NAME, scrub, describePath, knownDirs }, check);
     finishTest();
   }
 }
 
 function boot() {
   app.setName('SillyCatElectronDemo');
-  userData = selftest ? fs.mkdtempSync(path.join(os.tmpdir(), 'sillycat-profile-'))
+  userData = selftest ? (process.env.SILLYCAT_SELFTEST_PROFILE || fs.mkdtempSync(path.join(os.tmpdir(), 'sillycat-profile-')))
     : path.join(app.getPath('appData'), 'SillyCatElectronDemo');
   app.setPath('userData', userData);
   if (selftest) app.setPath('sessionData', userData);
   if (selftest) {
+    if (!process.env.SILLYCAT_SELFTEST_PROFILE) process.once('exit', () => {
+      try { fs.rmSync(userData, { recursive: true, force: true }); } catch (_) {}
+    });
     const i = process.argv.indexOf('--selftest-out');
     out = i >= 0 && process.argv[i + 1] ? path.resolve(process.argv[i + 1])
       : path.join(os.tmpdir(), 'sillycat-selftest-' + Date.now());
@@ -303,12 +371,9 @@ function boot() {
   }
   app.on('second-instance', () => { if (win && !win.isDestroyed()) win.showInactive(); });
   app.on('child-process-gone', (_, d) => log('ERROR', 'child-process-gone ' + JSON.stringify(d)));
-  app.on('before-quit', () => { if (hook) hook.stop(); endDrag(); flushPosition(); });
+  app.on('before-quit', () => { updater?.stop(); hook.stop(); endDrag(); flushPosition(); });
   app.on('window-all-closed', () => app.quit());
-  process.on('uncaughtException', e => {
-    if (!started || selftest) fatal('桌宠运行异常', e.stack || e.message);
-    else log('ERROR', 'uncaughtException ' + (e.stack || e.message));
-  });
+  process.on('uncaughtException', e => fatal('桌宠运行异常', e.stack || e.message));
   process.on('unhandledRejection', e => log('ERROR', 'unhandledRejection ' + (e?.stack || String(e))));
   app.whenReady().then(ready).catch(e => fatal('桌宠启动失败', e.stack || e.message));
 }
@@ -521,27 +586,53 @@ function showContextMenu() {
   return new Promise((resolve) => menu.popup({ window: win, callback: resolve }));
 }
 
-function inputStatus() {
-  const state = hook?.status();
-  const started = state?.started === true;
-  return {
-    granted: true,
-    keys: started,
-    mouse: started,
-    keyboard: started ? 'ok' : 'unsupported',
-    needs_permission: false,
-    events: { keys: state?.keys ?? 0, buttons: state?.buttons ?? 0 },
-  };
+const LOGIN_NAME = 'SillyCatElectronDemo';
+const systemTest = selftest ? { launchItems: [], openedLinks: [], restarts: 0 } : null;
+
+function autostartStatus() {
+  if (!selftest && process.platform !== 'win32') {
+    return { enabled: false, needs_approval: false, platform: 'other' };
+  }
+  // Electron 22 以命令行解析 path，必须把可能带空格的路径引起来。
+  const { launchItems } = systemTest || app.getLoginItemSettings({ path: '"' + process.execPath + '"' });
+  const enabled = launchItems.some(item => item.name === LOGIN_NAME && item.scope === 'user' &&
+    item.enabled && item.args.length === 0);
+  return { enabled, needs_approval: false, platform: 'windows' };
+}
+
+function setAutostart(enabled) {
+  if (typeof enabled !== 'boolean') throw new Error('enabled 必须是布尔值');
+  if (systemTest) {
+    systemTest.launchItems = enabled ? [{ name: LOGIN_NAME, scope: 'user', enabled, args: [] }] : [];
+  } else {
+    if (process.platform !== 'win32') throw new Error('当前平台不支持开机自动启动');
+    app.setLoginItemSettings({ name: LOGIN_NAME, path: '"' + process.execPath + '"', openAtLogin: enabled, enabled });
+  }
+  const status = autostartStatus();
+  if (status.enabled !== enabled) throw new Error('系统未能修改登录项');
+  return status;
+}
+
+function openLink(target) {
+  const urls = new Map([
+    ['github', 'https://github.com/S0u1/silly-cat'],
+    ['douyin', 'https://www.douyin.com/user/MS4wLjABAAAAgiL6r1k59SPVX7I3Hu2RImPW3Vs5RR2UUEjduDIP3jM']
+  ]);
+  const url = urls.get(target);
+  if (!url) throw new Error('未知链接');
+  if (systemTest) { systemTest.openedLinks.push(url); return; }
+  if (process.platform === 'win32') return shell.openExternal(url);
 }
 
 function invokeCommand(command, args) {
   switch (command) {
-    case 'platform_flags': return { win7: false };
+    case 'platform_flags': return { win7: win7Card };
     case 'load_settings': return loadSettings();
     case 'save_settings': {
       const settings = args?.settings;
       if (!isObject(settings)) throw new Error('settings 必须是对象');
       writeJSON('settings.json', settings);
+      updater.setAuto(settings);
       applyCatSize(catSizeOf(settings));
       send('silly:settings', settings);
       return;
@@ -552,20 +643,23 @@ function invokeCommand(command, args) {
     case 'cursor_local': return cursorLocal();
     case 'position_locked': return positionLocked;
     case 'show_context_menu': return showContextMenu();
-    case 'input_status': return inputStatus();
-    case 'held_input_state': throw new Error('unsupported');
-    case 'update_status': return { kind: 'idle' };
-    case 'install_update': throw new Error('此 demo 不含自动更新');
-    case 'open_settings': log('INFO', '设置窗口在 demo 里未实现'); return;
-    case 'updater_configured': return false;
+    case 'input_status': return hook.inputStatus();
+    case 'held_input_state': return hook.heldInputState(args?.keys, args?.buttons);
+    case 'update_status': return updater.status();
+    case 'install_update': return updater.install();
+    case 'open_settings': return showSettings();
+    case 'updater_configured': return updater.configured;
     case 'app_version': return app.getVersion();
-    case 'autostart_status':
-    case 'set_autostart':
-    case 'open_login_items':
+    case 'autostart_status': return autostartStatus();
+    case 'set_autostart': return setAutostart(args?.enabled);
     case 'open_input_monitoring':
-    case 'reset_input_monitoring':
+    case 'reset_input_monitoring': throw new Error('只有 macOS 需要输入监控授权');
     case 'restart_app':
-    case 'open_link': throw new Error('demo 未实现');
+      if (systemTest) { systemTest.restarts++; return; }
+      app.relaunch();
+      app.quit();
+      return;
+    case 'open_link': return openLink(args?.target);
     default: {
       const name = typeof command === 'string' ? command : '<invalid>';
       const error = `unknown command: ${name}`;
@@ -578,39 +672,51 @@ function invokeCommand(command, args) {
   }
 }
 
-function windowMethod(method, arg) {
+function windowMethod(caller, method, arg) {
   switch (method) {
     case 'setIgnoreCursorEvents':
+      if (caller !== win) return;
       if (typeof arg !== 'boolean') throw new Error('setIgnoreCursorEvents requires a boolean');
       ignoreDesired = arg;
       applyIgnore();
       return;
-    case 'startDragging': return startDragging();
-    case 'close': return;
+    case 'startDragging': if (caller === win) startDragging(); return;
+    case 'close': setImmediate(() => { if (!caller.isDestroyed()) caller.close(); }); return;
+    case 'setSize': {
+      if (!Number.isFinite(arg?.width) || !Number.isFinite(arg?.height) ||
+          arg.width < 1 || arg.height < 1 || arg.width > 16384 || arg.height > 16384) {
+        throw new Error('窗口尺寸无效');
+      }
+      caller.setContentSize(Math.round(arg.width), Math.round(arg.height));
+      return;
+    }
     default: throw new Error('unknown window method');
   }
 }
 
-function isMainPage(event) {
-  if (!liveWindow() || event.sender !== win.webContents) return false;
-  const frame = event.senderFrame;
-  // 不用 === indexURL：Chromium 与 Node 对路径里特殊字符的百分号编码可能不同，严格相等会让整页 IPC 被误拒。页面只加载本地文件，will-navigate 也已锁死。
-  return !!frame && frame === win.webContents.mainFrame && /^file:/i.test(frame.url);
+function callerWindow(event) {
+  for (const [window, pagePath] of [[win, indexPath], [settingsWin, settingsPath]]) {
+    if (!window || window.isDestroyed() || event.sender !== window.webContents) continue;
+    const frame = event.senderFrame;
+    if (frame && frame === event.sender.mainFrame && isPage(frame.url, pagePath)) return window;
+  }
+  return null;
 }
 
 function installIPC() {
   const handle = (handler) => async (event, ...args) => {
     try {
-      if (!isMainPage(event)) throw new Error('unauthorized IPC sender');
-      return { value: await handler(...args) };
+      const caller = callerWindow(event);
+      if (!caller) throw new Error('unauthorized IPC sender');
+      return { value: await handler(caller, ...args) };
     } catch (error) {
       return { error: error.message ?? String(error) };
     }
   };
-  ipcMain.handle('silly:invoke', handle(invokeCommand));
+  ipcMain.handle('silly:invoke', handle((_, command, args) => invokeCommand(command, args)));
   ipcMain.handle('silly:window', handle(windowMethod));
   ipcMain.on('silly:drag-end', (event) => {
-    if (isMainPage(event)) endDrag();
+    if (callerWindow(event) === win) endDrag();
   });
   log('INFO', `Mouse forwarding ${forwardMouse ? 'enabled' : 'disabled (SILLYCAT_NO_FORWARD=1)'}`);
 }
@@ -655,15 +761,11 @@ function resetPosition() {
 }
 
 async function openLogFolder() {
-  const info = currentRunLog();
-  openedFolder = info.file || userData;
+  openedFolder = userData;
   if (selftest) return;
   try {
-    if (info.file) shell.showItemInFolder(info.file);
-    else {
-      const error = await shell.openPath(userData);
-      if (error) log('WARN', `Cannot open log folder: ${error}`);
-    }
+    const error = await shell.openPath(userData);
+    if (error) log('WARN', `Cannot open log folder: ${error}`);
   } catch (error) {
     log('WARN', `Cannot open log folder: ${error.message}`);
   }
@@ -675,6 +777,8 @@ function getOpenedFolder() {
 
 function menuTemplate() {
   return [
+    { label: '设置…', click: showSettings },
+    { label: '检查更新…', click: async () => { await showSettings(); await updater.check(true); } },
     { label: '显示/隐藏猫', enabled: selftest || trayAvailable(), click: toggleVisibility },
     { label: '锁定位置', type: 'checkbox', checked: positionLocked, click: togglePositionLock },
     { label: '重置位置', click: resetPosition },
@@ -690,7 +794,7 @@ function installTray() {
     const image = nativeImage.createFromPath(iconPath);
     if (image.isEmpty()) throw new Error(`Cannot load tray icon: ${iconPath}`);
     tray = new Tray(image);
-    tray.setToolTip('捣蛋奶牛猫（Electron demo）');
+    tray.setToolTip('捣蛋猫 兼容版');
     refreshTrayMenu();
     if (process.platform === 'win32') {
       tray.on('right-click', refreshTrayMenu);
@@ -707,8 +811,10 @@ function installTray() {
   }
 }
 
-try {
-  boot();
-} catch (error) {
-  fatal('桌宠初始化失败', error.stack || error.message);
+if (process.type === 'browser') {
+  try { boot(); }
+  catch (error) { fatal('桌宠初始化失败', error.stack || error.message); }
 }
+
+// 同一组命令与菜单可在没有窗口服务器的构建机上配合系统桩自检。
+module.exports = { invokeCommand, menuTemplate, isPage, systemTest, appendLogLine, exportFatalLog, scrub, describePath };

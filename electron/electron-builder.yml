@@ -14,6 +14,15 @@ files:
   - "!dist/**"
   - "!launchers/**"
   - "!build/**"
+  - "!tools/**"
+  - "!updater-test.js"
+  - "!node_modules/koffi/{doc,lib,vendor}/**"
+  - "!node_modules/koffi/src/koffi/src/abi/**"
+  - "!node_modules/koffi/src/koffi/src/*.{cc,hh,inc,def}"
+  - "!node_modules/koffi/cnoke.cjs"
+  - "!node_modules/@koromix/koffi-{android,darwin,freebsd,linux,openbsd}-*/**"
+  - "!node_modules/@koromix/koffi-win32-{ia32,arm64}/**"
+  - "!node_modules/@koromix/**/*.lib"
   - "!electron-builder.yml"
   - "!README.md"
   - "!.gitignore"
@@ -25,6 +34,7 @@ files:
   - "!node_modules/uiohook-napi/binding.gyp"
 asar: true
 asarUnpack:
+  - node_modules/@koromix/koffi-win32-x64/win32_x64/*.node
   - node_modules/uiohook-napi/prebuilds/win32-x64/*.node
 extraResources:
   - from: ../prototype
@@ -40,7 +50,7 @@ win:
       arch: [x64]
     - target: zip
       arch: [x64]
-  artifactName: SillyCatElectronDemo_x64.${ext}
+  artifactName: SillyCat_${version}_electron_x64.${ext}
   signAndEditExecutable: false
   icon: ../src-tauri/icons/icon.ico
   extraFiles:
@@ -50,7 +60,7 @@ win:
         - "*.bat"
         - "README.txt"
 nsis:
-  artifactName: SillyCatElectronDemo_x64-setup.${ext}
+  artifactName: SillyCat_${version}_electron_x64-setup.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
@@ -58,6 +68,7 @@ nsis:
   language: "2052"
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: SillyCat Electron Demo
+  shortcutName: 捣蛋猫 兼容版
+  uninstallDisplayName: 捣蛋猫 兼容版
   runAfterFinish: true
   deleteAppDataOnUninstall: false

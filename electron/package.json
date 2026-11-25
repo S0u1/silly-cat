@@ -1,17 +1,19 @@
 {
   "name": "sillycat-electron-demo",
-  "version": "0.1.0",
+  "version": "0.0.7",
   "private": true,
-  "description": "SillyCat Electron 22 验证 demo（64 位 Win7/8/10/11）：免 WebView2、真透明、全局键鼠",
+  "description": "捣蛋猫 兼容版（Windows x64）",
   "author": "SillyCat",
   "license": "MIT",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "selftest": "electron . --selftest",
+    "selftest": "node tools/run-selftest.cjs",
+    "predist": "node tools/prepare-koffi.cjs",
     "dist": "electron-builder --win nsis zip --x64"
   },
   "dependencies": {
+    "koffi": "3.3.8",
     "uiohook-napi": "1.5.5"
   },
   "devDependencies": {
