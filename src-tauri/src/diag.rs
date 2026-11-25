@@ -2,19 +2,27 @@
 mod windows {
     use std::backtrace::Backtrace;
     use std::env;
+    use std::ffi::OsString;
     use std::fmt::Write as _;
     use std::fs::{self, OpenOptions};
     use std::io::Write as _;
+    use std::os::windows::ffi::OsStringExt as _;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
     use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
+    use windows_sys::Win32::Foundation::MAX_PATH;
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
+    use windows_sys::Win32::UI::Shell::{
+        SHGetFolderPathW, CSIDL_DESKTOPDIRECTORY, SHGFP_TYPE_CURRENT,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
     const LOG_DIR: &str = "com.drew.sillycat";
     const LOG_NAME: &str = "silly-cat.log";
+    /// 出错弹窗时同时放到桌面上的日志副本，方便用户找到并发回来。正常启动不会往桌面写任何东西。
+    const DESKTOP_LOG_NAME: &str = "捣蛋猫-错误日志.txt";
     const LOG_LIMIT: u64 = 256 * 1024;
     static READY: AtomicBool = AtomicBool::new(false);
     static LOG_LOCK: Mutex<()> = Mutex::new(());
@@ -77,13 +85,50 @@ mod windows {
             .collect()
     }
 
+    /// 获取当前用户的桌面目录，跟随 OneDrive 等对桌面的重定向。
+    /// 使用 SHGetFolderPathW 写入调用方缓冲区。SHGetKnownFolderPath 返回的路径需要
+    /// CoTaskMemFree 释放，而 windows-sys 0.61 将 CoTaskMemFree 链接到 Win8 才有的
+    /// combase.dll，导致 Win7 在进入 main 前就无法加载程序。
+    fn desktop_dir() -> Option<PathBuf> {
+        let mut path = [0u16; MAX_PATH as usize];
+        // SAFETY: path 是可写的 MAX_PATH 宽字符缓冲区，空 token 表示当前用户。
+        let result = unsafe {
+            SHGetFolderPathW(
+                std::ptr::null_mut(),
+                CSIDL_DESKTOPDIRECTORY as i32,
+                std::ptr::null_mut(),
+                SHGFP_TYPE_CURRENT as u32,
+                path.as_mut_ptr(),
+            )
+        };
+        if result < 0 {
+            return None;
+        }
+        let len = path.iter().position(|&unit| unit == 0)?;
+        (len > 0).then(|| PathBuf::from(OsString::from_wide(&path[..len])))
+    }
+
+    /// 把完整日志（读不到就用这次的错误信息）存一份到桌面，带 UTF-8 BOM：Win7 的记事本没有 BOM 会把中文显示成乱码。
+    fn export_to_desktop(message: &str) -> Option<PathBuf> {
+        let mut body = b"\xEF\xBB\xBF".to_vec();
+        match log_dir().and_then(|dir| fs::read(dir.join(LOG_NAME)).ok()) {
+            Some(log) if !log.is_empty() => body.extend_from_slice(&log),
+            _ => body.extend_from_slice(message.as_bytes()),
+        }
+        let target = desktop_dir()?.join(DESKTOP_LOG_NAME);
+        fs::write(&target, body).ok()?;
+        Some(target)
+    }
+
     fn show_error(message: &str) {
-        let path = log_dir().map_or_else(
-            || "%LOCALAPPDATA%\\com.drew.sillycat\\silly-cat.log（LOCALAPPDATA 未设置）".into(),
-            |dir| dir.join(LOG_NAME).to_string_lossy().into_owned(),
-        );
+        let path = export_to_desktop(message)
+            .or_else(|| log_dir().map(|dir| dir.join(LOG_NAME)))
+            .map_or_else(
+                || "%LOCALAPPDATA%\\com.drew.sillycat\\silly-cat.log（LOCALAPPDATA 未设置）".into(),
+                |path| path.to_string_lossy().into_owned(),
+            );
         let body = wide(&format!(
-            "捣蛋猫没能启动，或者刚才崩溃了。\n\n原因：{message}\n\n日志文件：{path}\n\n请把这个日志发到 https://github.com/S0u1/silly-cat/issues 反馈。"
+            "捣蛋猫没能启动，或者刚才崩溃了。\n\n原因：{message}\n\n日志文件：{path}\n\n请把这个日志发到你拿到安装包的地方（比如群里），或者 https://github.com/S0u1/silly-cat/issues。"
         ));
         let title = wide("捣蛋猫");
         // SAFETY: 两个字符串都以 NUL 结尾，在同步调用期间有效。
