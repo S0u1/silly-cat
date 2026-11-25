@@ -529,8 +529,22 @@ jobs:
           toolchain: 1.77.2
           targets: x86_64-pc-windows-msvc
 
+      # 静态链接 C 运行库：检测程序放在 resources/audio-probe/ 下单独启动，找不到 Electron 目录里的 DLL；
+      # 动态链接会依赖 vcruntime140.dll（VC++ 运行库）和 api-ms-win-crt（Win7 要 KB2999226），没装的机器上起不来。
       - name: 构建音频检测程序
-        run: cargo +1.77.2 build --release --locked --manifest-path tools/audio-probe/Cargo.toml
+        shell: bash
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo +1.77.2 build --release --locked --manifest-path tools/audio-probe/Cargo.toml
+          python -m pip install pefile
+          exe=tools/audio-probe/target/release/silly-audio-probe.exe
+          dlls=$(python -c "import pefile,sys; pe=pefile.PE(sys.argv[1]); print(' '.join(e.dll.decode() for e in pe.DIRECTORY_ENTRY_IMPORT))" "$exe")
+          echo "检测程序导入的 DLL：$dlls"
+          if grep -qiE 'vcruntime|msvcp|api-ms-win-crt|ucrtbase' <<< "$dlls"; then
+            echo "::error file=$exe::检测程序仍依赖 VC++ 运行库或 UCRT，没装的机器上起不来"
+            exit 1
+          fi
 
       - name: 构建兼容版安装包和免安装包
         working-directory: electron

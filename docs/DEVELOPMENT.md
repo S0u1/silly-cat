@@ -91,7 +91,7 @@
   - 单个会话出错只跳过该会话。获取设备、读取设备音量或枚举其会话失败时跳过该设备。没有活动设备时返回安静。只有枚举设备或读取设备总数失败，或所有活动设备都在设备级失败时，才丢弃探测器。
   - 创建失败或采样需要重建时，依次等待 1、2、4、8、16、30 秒，之后每次等 30 秒。一次成功采样就重置间隔。等待期间每秒仍报安静。只有从启动起从未成功创建探测器，且连续三次创建都报告 MMDevice 类未注册（`REGDB_E_CLASSNOTREG`），才返回 `supported:false` 并停止重试。
 - 排除名单（通话、会议软件）分别写在 `media_mac.rs` 和 `media_win.rs` 顶部的 `EXCLUDED`，macOS 按 bundle id（相等或以「条目.」开头），Windows 按 exe 名（不区分大小写）。
-- 兼容版用 `tools/audio-probe`：零依赖 Rust 小程序，通过 `#[path]` 共用 `media_win.rs`，每秒往 stdout 打一行 `{"active":…}`，stdin 关闭即退出。`electron/main.js` 首次调用 `media_activity` 时启动它，10 秒没人问就结束，10 分钟内异常停止 3 次后暂停检测，期间仍报 `supported:true`、不戴耳机。失败记录在 10 分钟后过期，窗口内不足 3 次即可恢复。检测程序报告 `{"supported":false}` 时才停用已启动的检测程序，这次退出不计入异常次数。CI 的 electron 任务用 Rust 1.77.2 编译它，并对打进包里的 exe 做 Win7 导入表检查。改 `media_win.rs` 时不要用 Rust 1.77.2 之后才稳定的语法和 API。
+- 兼容版用 `tools/audio-probe`：零依赖 Rust 小程序，通过 `#[path]` 共用 `media_win.rs`，每秒往 stdout 打一行 `{"active":…}`，stdin 关闭即退出。`electron/main.js` 首次调用 `media_activity` 时启动它，10 秒没人问就结束，10 分钟内异常停止 3 次后暂停检测，期间仍报 `supported:true`、不戴耳机。失败记录在 10 分钟后过期，窗口内不足 3 次即可恢复。检测程序报告 `{"supported":false}` 时才停用已启动的检测程序，这次退出不计入异常次数。CI 的 electron 任务用 Rust 1.77.2 加 `-C target-feature=+crt-static` 编译它（静态链接 C 运行库，不依赖 VC++ 运行库和 UCRT；导入表里出现 vcruntime、api-ms-win-crt 就让任务失败），并对打进包里的 exe 做 Win7 导入表检查。改 `media_win.rs` 时不要用 Rust 1.77.2 之后才稳定的语法和 API。
 
 ## Electron 兼容版
 
