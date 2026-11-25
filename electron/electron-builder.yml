@@ -1,0 +1,63 @@
+# 只在 Claude 的 macOS 上交叉构建：signAndEditExecutable=false 避免依赖 wine（exe 图标因此是默认的 Electron 图标）。
+appId: com.drew.sillycat.electrondemo
+productName: SillyCatElectronDemo
+copyright: SillyCat
+directories:
+  output: dist
+compression: maximum
+npmRebuild: false
+electronLanguages:
+  - zh-CN
+  - en-US
+files:
+  - "**/*"
+  - "!dist/**"
+  - "!launchers/**"
+  - "!build/**"
+  - "!electron-builder.yml"
+  - "!README.md"
+  - "!.gitignore"
+  - "!node_modules/uiohook-napi/prebuilds/darwin-*/**"
+  - "!node_modules/uiohook-napi/prebuilds/linux-*/**"
+  - "!node_modules/uiohook-napi/prebuilds/win32-arm64/**"
+  - "!node_modules/uiohook-napi/libuiohook/**"
+  - "!node_modules/uiohook-napi/src/**"
+  - "!node_modules/uiohook-napi/binding.gyp"
+asar: true
+asarUnpack:
+  - node_modules/uiohook-napi/prebuilds/win32-x64/*.node
+extraResources:
+  - from: ../prototype
+    to: prototype
+    filter:
+      - "**/*"
+      - "!**/.DS_Store"
+  - from: ../src-tauri/icons/32x32.png
+    to: tray.png
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  artifactName: SillyCatElectronDemo_win7_x64.${ext}
+  signAndEditExecutable: false
+  icon: ../src-tauri/icons/icon.ico
+  extraFiles:
+    - from: launchers
+      to: .
+      filter:
+        - "*.bat"
+        - "README.txt"
+nsis:
+  artifactName: SillyCatElectronDemo_win7_x64-setup.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  allowElevation: false
+  language: "2052"
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SillyCat Electron Demo
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false

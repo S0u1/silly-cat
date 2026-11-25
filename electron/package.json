@@ -1,0 +1,21 @@
+{
+  "name": "sillycat-electron-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SillyCat Electron 22 验证 demo：Win7 真透明、免 WebView2、全局键鼠",
+  "author": "SillyCat",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "selftest": "electron . --selftest",
+    "dist": "electron-builder --win nsis zip --x64"
+  },
+  "dependencies": {
+    "uiohook-napi": "1.5.5"
+  },
+  "devDependencies": {
+    "electron": "22.3.27",
+    "electron-builder": "^26.0.0"
+  }
+}
