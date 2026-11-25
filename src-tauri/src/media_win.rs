@@ -1,5 +1,9 @@
 // WASAPI only exposes scalar levels here. All COM objects stay on the creating thread.
-use std::{ffi::c_void, ptr};
+use std::{
+    ffi::c_void,
+    ptr,
+    time::{Duration, Instant},
+};
 
 type Raw = *mut c_void;
 type Hr = i32;
@@ -162,47 +166,68 @@ impl Prober {
     }
     pub fn sample(&mut self, exclude_pids: &[u32]) -> Result<bool> {
         unsafe {
-            // IMMDeviceEnumerator : IUnknown, 4 GetDefaultAudioEndpoint(eRender, eConsole)
-            let endpoint = method!(
+            // IMMDeviceEnumerator : IUnknown, 3 EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)
+            let enumerate = method!(
                 self.enumerator,
-                4,
-                unsafe extern "system" fn(Raw, i32, i32, *mut Raw) -> Hr
+                3,
+                unsafe extern "system" fn(Raw, i32, u32, *mut Raw) -> Hr
             );
-            let device = match Interface::obtain(|out| endpoint(self.enumerator.0, 0, 0, out)) {
-                Err(hr) if hr == 0x80070490u32 as Hr => return Ok(false), // E_NOTFOUND
-                result => result?,
-            };
-            let volume = device.activate(&ENDPOINT_VOLUME)?;
-            // IAudioEndpointVolume : IUnknown, 15 GetMute, 9 GetMasterVolumeLevelScalar
-            if volume.value::<i32>(15)? != 0 || volume.value::<f32>(9)? < 0.01 {
-                return Ok(false);
-            }
-            let manager = device.activate(&MANAGER)?;
-            // IAudioSessionManager2 : IAudioSessionManager : IUnknown, 5 GetSessionEnumerator
-            let enumerate = method!(manager, 5, unsafe extern "system" fn(Raw, *mut Raw) -> Hr);
-            let sessions = Interface::obtain(|out| enumerate(manager.0, out))?;
-            // IAudioSessionEnumerator : IUnknown, 3 GetCount, 4 GetSession
-            let count: i32 = sessions.value(3)?;
-            let get = method!(
-                sessions,
+            let devices = Interface::obtain(|out| enumerate(self.enumerator.0, 0, 1, out))?;
+            // IMMDeviceCollection : IUnknown, 3 GetCount, 4 Item
+            let count: u32 = devices.value(3)?;
+            let item = method!(
+                devices,
                 4,
-                unsafe extern "system" fn(Raw, i32, *mut Raw) -> Hr
+                unsafe extern "system" fn(Raw, u32, *mut Raw) -> Hr
             );
+            let mut checked_device = false;
             let mut result = Ok(false);
             for i in 0..count {
-                // A disappearing session must not hide another audible session.
-                let active = Interface::obtain(|out| get(sessions.0, i, out))
-                    .and_then(|session| session_active(&session, exclude_pids));
-                match active {
+                match Interface::obtain(|out| item(devices.0, i, out))
+                    .and_then(|device| device_active(&device, exclude_pids))
+                {
                     Ok(true) => return Ok(true),
+                    Ok(false) => checked_device = true,
                     Err(hr) => result = Err(hr),
-                    Ok(false) => (),
                 }
             }
-            result
+            if checked_device {
+                Ok(false)
+            } else {
+                result
+            }
         }
     }
 }
+
+unsafe fn device_active(device: &Interface, exclude_pids: &[u32]) -> Result<bool> {
+    let volume = device.activate(&ENDPOINT_VOLUME)?;
+    // IAudioEndpointVolume : IUnknown, 15 GetMute, 9 GetMasterVolumeLevelScalar
+    if volume.value::<i32>(15)? != 0 || volume.value::<f32>(9)? < 0.01 {
+        return Ok(false);
+    }
+    let manager = device.activate(&MANAGER)?;
+    // IAudioSessionManager2 : IAudioSessionManager : IUnknown, 5 GetSessionEnumerator
+    let enumerate = method!(manager, 5, unsafe extern "system" fn(Raw, *mut Raw) -> Hr);
+    let sessions = Interface::obtain(|out| enumerate(manager.0, out))?;
+    // IAudioSessionEnumerator : IUnknown, 3 GetCount, 4 GetSession
+    let count: i32 = sessions.value(3)?;
+    let get = method!(
+        sessions,
+        4,
+        unsafe extern "system" fn(Raw, i32, *mut Raw) -> Hr
+    );
+    for i in 0..count {
+        if Interface::obtain(|out| get(sessions.0, i, out))
+            .and_then(|session| session_active(&session, exclude_pids))
+            .unwrap_or(false)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 unsafe fn session_active(session: &Interface, exclude_pids: &[u32]) -> Result<bool> {
     // IAudioSessionControl : IUnknown, 3 GetState (AudioSessionStateActive = 1)
     if session.value::<i32>(3)? != 1 {
@@ -228,4 +253,73 @@ unsafe fn session_active(session: &Interface, exclude_pids: &[u32]) -> Result<bo
     }
     // IAudioMeterInformation : IUnknown, 3 GetPeakValue
     Ok(session.query(&METER)?.value::<f32>(3)? > 0.01)
+}
+
+fn permanent_init_error(hr: Hr) -> bool {
+    hr == 0x80040154u32 as Hr // REGDB_E_CLASSNOTREG
+}
+
+// Used on the sampling thread in both the desktop worker and the Win7 helper.
+pub struct RetryProbe {
+    probe: Option<Prober>,
+    retry_at: Instant,
+    delay_secs: u64,
+    initialized_once: bool,
+    permanent_failures: u8,
+}
+
+impl RetryProbe {
+    pub fn new() -> Self {
+        Self {
+            probe: None,
+            retry_at: Instant::now(),
+            delay_secs: 1,
+            initialized_once: false,
+            permanent_failures: 0,
+        }
+    }
+
+    // None means unsupported. During backoff, publish a fresh quiet sample.
+    pub fn poll(&mut self, excluded: &[u32]) -> Result<Option<bool>> {
+        if Instant::now() < self.retry_at {
+            return Ok(Some(false));
+        }
+        let probe = match self.probe.as_mut() {
+            Some(probe) => probe,
+            None => match Prober::new() {
+                Ok(probe) => {
+                    self.initialized_once = true;
+                    self.probe.insert(probe)
+                }
+                Err(hr) => {
+                    if !self.initialized_once && permanent_init_error(hr) {
+                        self.permanent_failures += 1;
+                        if self.permanent_failures == 3 {
+                            return Ok(None);
+                        }
+                    } else {
+                        self.permanent_failures = 0;
+                    }
+                    self.back_off();
+                    return Err(hr);
+                }
+            },
+        };
+        match probe.sample(excluded) {
+            Ok(active) => {
+                self.delay_secs = 1;
+                Ok(Some(active))
+            }
+            Err(hr) => {
+                self.probe = None;
+                self.back_off();
+                Err(hr)
+            }
+        }
+    }
+
+    fn back_off(&mut self) {
+        self.retry_at = Instant::now() + Duration::from_secs(self.delay_secs);
+        self.delay_secs = (self.delay_secs * 2).min(30);
+    }
 }

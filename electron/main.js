@@ -627,6 +627,7 @@ function openLink(target) {
 const unsupportedAudio = Object.freeze({ supported: false, active: false, via: 'none' });
 let audioChild, audioIdleTimer, audioSample;
 let audioFailures = [];
+let probeUnsupported = false;
 let restartWarning = false;
 
 function stopAudioProbe() {
@@ -640,7 +641,7 @@ function stopAudioProbe() {
 }
 
 function mediaActivity() {
-  if (process.platform !== 'win32') return unsupportedAudio;
+  if (process.platform !== 'win32' || probeUnsupported) return unsupportedAudio;
   const now = performance.now();
   if (!audioChild) {
     const exe = app?.isPackaged
@@ -664,17 +665,20 @@ function mediaActivity() {
       if (audioChild !== child) return;
       clearTimeout(audioIdleTimer);
       audioChild = audioSample = undefined;
-      audioFailures.push(performance.now());
+      if (!probeUnsupported) audioFailures.push(performance.now());
     };
     child.once('error', exited);
-    child.once('exit', exited);
+    // A clean exit can precede the final stdout line. close follows stdio drainage.
+    child.once('exit', code => { if (code !== 0) exited(); });
+    child.once('close', exited);
     const lines = require('readline').createInterface({ input: child.stdout, crlfDelay: Infinity });
     // readline 会转发 stdout 的错误。
     lines.on('error', () => {});
     lines.on('line', line => {
       if (audioChild !== child) return;
       try {
-        const { active } = JSON.parse(line);
+        const { supported, active } = JSON.parse(line);
+        if (supported === false) probeUnsupported = true;
         if (typeof active === 'boolean') audioSample = { active, time: performance.now() };
       } catch (_) {}
     });

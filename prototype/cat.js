@@ -703,7 +703,7 @@
       const bx = P.bodyX, by = P.lift + P.bodyY;
       const idle = TAIL_IDLE.map((p, i) => {
         const vx = p.x - TAIL_PIVOT.x, vy = p.y - TAIL_PIVOT.y;
-        const lift = !want && r === 0 ? P.tailTipLift * (i / (TAIL_N - 1)) ** 3 : 0;
+        const lift = P.tailTipLift * (1 - r) * (i / (TAIL_N - 1)) ** 3;
         return { x: TAIL_PIVOT.x + vx * ca - vy * sa + bx, y: TAIL_PIVOT.y + vx * sa + vy * ca + by - lift };
       });
 

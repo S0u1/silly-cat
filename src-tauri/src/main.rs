@@ -324,7 +324,10 @@ async fn media_activity() -> MediaActivity {
     #[cfg(target_os = "macos")]
     let (active, via) = media_mac::sample();
     #[cfg(windows)]
-    let (active, via) = (media_worker::latest(), "meter");
+    let (active, via) = match media_worker::latest() {
+        Some(active) => (active, "meter"),
+        None => (false, "none"),
+    };
     #[cfg(not(any(target_os = "macos", windows)))]
     let (active, via) = (false, "none");
     MediaActivity { supported: via != "none", active, via }

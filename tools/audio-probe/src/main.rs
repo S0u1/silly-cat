@@ -28,19 +28,16 @@ fn main() {
         process::exit(0);
     });
 
-    let mut probe = None;
+    let mut probe = media_win::RetryProbe::new();
     let mut stdout = io::stdout().lock();
     loop {
-        let result = (|| {
-            if probe.is_none() {
-                probe = Some(media_win::Prober::new()?);
+        let written = match probe.poll(&excluded) {
+            Ok(Some(active)) => writeln!(stdout, "{{\"active\":{active}}}"),
+            Ok(None) => {
+                let _ = writeln!(stdout, "{{\"supported\":false}}").and_then(|_| stdout.flush());
+                return;
             }
-            probe.as_mut().unwrap().sample(&excluded)
-        })();
-        let written = match result {
-            Ok(active) => writeln!(stdout, "{{\"active\":{active}}}"),
             Err(hr) => {
-                probe = None;
                 writeln!(
                     stdout,
                     "{{\"active\":false,\"error\":\"HRESULT {hr:#010x}\"}}"

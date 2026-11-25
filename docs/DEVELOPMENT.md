@@ -86,9 +86,12 @@
 
 - 命令返回 `{ supported, active, via }`，`active` 是这一刻的瞬时值。前端 `prototype/headphones.js` 只在设置打开时每秒问一次，连续 3 秒为真才戴，连续 8 秒为假才摘；超时或出错都当作没在放。`supported:false` 时设置页隐藏这一项。
 - macOS（`src-tauri/src/media_mac.rs`）：只读 CoreAudio HAL 属性，不建 tap，不弹授权。默认输出设备静音或音量低于 0.01 时为假。14.2 起遍历 `kAudioHardwarePropertyProcessObjectList`，任一进程 `IsRunningOutput` 且不在排除名单里即为真（`via:"process"`）。更早的系统退回设备的 `DeviceIsRunningSomewhere`（`via:"device"`），分不出是哪个应用在出声。Chromium 停播后约 5 秒才关输出流，所以 Chrome 暂停后要 13 秒左右才摘耳机。
-- Windows（`src-tauri/src/media_win.rs`，后台线程见 `media_worker.rs`）：WASAPI 会话电平，手写 COM vtable，只从 `ole32`、`kernel32` 导入，不用 windows-sys，Win7 版同一份代码。默认渲染设备静音或主音量低于 0.01 时为假；否则遍历活动会话，跳过系统提示音会话、自己的 PID、排除名单里的进程、自身静音或音量为 0 的会话，任一会话峰值超过 0.01 即为真（`via:"meter"`）。后台线程 10 秒没人问就停止探测。
+  - `IsRunningOutput` 只表示进程开着输出流。网页持续运行的 AudioContext，或暂停后仍占着输出流的游戏、播放器，都可能让猫一直戴着耳机。要读取进程电平，需要建立 process tap 并申请「屏幕与系统录音」授权，本项目刻意不申请。2026-11-25，Claude 在一台 macOS 26 机器上实测，空闲时 25 个音频进程都没有常开输出流。
+- Windows（`src-tauri/src/media_win.rs`，后台线程见 `media_worker.rs`）：WASAPI 会话电平，手写 COM vtable，只从 `ole32`、`kernel32` 导入，不用 windows-sys，Win7 版同一份代码。遍历所有活动渲染设备，跳过静音或主音量低于 0.01 的设备。在其余设备上检查活动会话，跳过系统提示音、自身 PID、排除名单里的进程，以及会话报告静音或音量低于 0.01 的情况。任一符合条件的会话峰值超过 0.01 即为真（`via:"meter"`）。后台线程 10 秒没人问就停止探测。
+  - 单个会话出错只跳过该会话。获取设备、读取设备音量或枚举其会话失败时跳过该设备。没有活动设备时返回安静。只有枚举设备或读取设备总数失败，或所有活动设备都在设备级失败时，才丢弃探测器。
+  - 创建失败或采样需要重建时，依次等待 1、2、4、8、16、30 秒，之后每次等 30 秒。一次成功采样就重置间隔。等待期间每秒仍报安静。只有从启动起从未成功创建探测器，且连续三次创建都报告 MMDevice 类未注册（`REGDB_E_CLASSNOTREG`），才返回 `supported:false` 并停止重试。
 - 排除名单（通话、会议软件）分别写在 `media_mac.rs` 和 `media_win.rs` 顶部的 `EXCLUDED`，macOS 按 bundle id（相等或以「条目.」开头），Windows 按 exe 名（不区分大小写）。
-- 兼容版用 `tools/audio-probe`：零依赖 Rust 小程序，通过 `#[path]` 共用 `media_win.rs`，每秒往 stdout 打一行 `{"active":…}`，stdin 关闭即退出。`electron/main.js` 首次调用 `media_activity` 时启动它，10 秒没人问就结束，10 分钟内意外退出超过 3 次就停止检测。CI 的 electron 任务用 Rust 1.77.2 编译它，并对打进包里的 exe 做 Win7 导入表检查。改 `media_win.rs` 时不要用 Rust 1.77.2 之后才稳定的语法和 API。
+- 兼容版用 `tools/audio-probe`：零依赖 Rust 小程序，通过 `#[path]` 共用 `media_win.rs`，每秒往 stdout 打一行 `{"active":…}`，stdin 关闭即退出。`electron/main.js` 首次调用 `media_activity` 时启动它，10 秒没人问就结束，10 分钟内异常停止 3 次后暂停检测，期间仍报 `supported:true`、不戴耳机。失败记录在 10 分钟后过期，窗口内不足 3 次即可恢复。检测程序报告 `{"supported":false}` 时才停用已启动的检测程序，这次退出不计入异常次数。CI 的 electron 任务用 Rust 1.77.2 编译它，并对打进包里的 exe 做 Win7 导入表检查。改 `media_win.rs` 时不要用 Rust 1.77.2 之后才稳定的语法和 API。
 
 ## Electron 兼容版
 
