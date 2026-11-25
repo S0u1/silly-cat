@@ -444,7 +444,9 @@ jobs:
       - name: 安装 Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: lts/*
+          # 固定 22（npm 10）：lts/* 已到 Node 26，它的 npm 默认不跑依赖的安装脚本，
+          # electron 本体、koffi、uiohook-napi 都靠安装脚本准备，跳过后自检直接失败。
+          node-version: 22
           cache: npm
           cache-dependency-path: |
             package-lock.json
