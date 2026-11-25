@@ -50,7 +50,9 @@
       "minimumSystemVersion": "13.0"
     },
     "windows": {
+      "webviewInstallMode": { "type": "skip" },
       "nsis": {
+        "installerHooks": "installer/hooks.nsh",
         "installMode": "currentUser",
         "languages": ["SimpChinese", "English"],
         "customLanguageFiles": {
