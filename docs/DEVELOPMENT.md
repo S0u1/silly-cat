@@ -81,9 +81,21 @@
 
 无界面测试可运行 `cargo test --manifest-path src-tauri/Cargo.toml`。前端的按住纠偏和帧循环用 `node --test tools/test-held-input.mjs` 测，零依赖，在内存里加载真实的前端脚本并模拟时钟、DOM 和 Tauri IPC。允许绑定回环端口的环境还可运行 `cargo test --manifest-path src-tauri/Cargo.toml check_loopback_manifest -- --ignored`，用真实插件检查本地清单中的新版和当前版本。
 
+## Electron 兼容版
+
+「捣蛋猫 兼容版」是 Windows x64 的独立程序，代码在 `electron/`。Electron 22 自带 Chromium，无需 WebView2。它和 Tauri 原版共用 `prototype/`，由 preload 提供页面所需的 Tauri 接口。页面新增 `invoke` 命令或监听事件时，要同步更新 `electron/main.js`，契约测试会检查接口是否齐全。
+
+`.github/workflows/release.yml` 的 `electron` 任务在 Windows runner 上检查版本，运行契约、输入和更新器测试，然后打包 NSIS 安装包和免安装 zip，检查 Koffi 和 uiohook 的原生模块导入表。带窗口的自检结果写入任务摘要，失败时仅发出告警。CI 构建时写入 exe 图标和版本信息。签名步骤使用和 Tauri 相同的更新私钥，Electron 运行应用的验签代码，以内置公钥核对安装包和签名版本，验证成功后才生成 `latest-electron.json`。标签构建将安装包、`.sig`、zip 和清单附件上传到同一草稿 Release。手动构建从 workflow artifact 取产物，未配置密钥时只出未签名的包。
+
+内部产品名和数据目录仍使用 `SillyCatElectronDemo`，安装器的 appId 也沿用 demo，以便覆盖安装旧 demo 并保留兼容版的设置。兼容版只读取自己的设置和更新清单。全局键鼠钩子、Aero 透明与关闭合成时的回退、开机启动，以及 NSIS 覆盖安装和自动更新后的重启需要在 Windows 真机验收。Win7 真机还未验证。
+
+改发布版本号时，同步更新根目录的 `package.json` 和 `package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`，以及 `electron/package.json` 和 `electron/package-lock.json`。两份 npm 锁文件都要同步根级 `version` 和 `packages[""].version`。
+
 ## Windows 7 / 8 / 8.1 版
 
 Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所以发布流程里 `release.yml` 的 `win7` 任务单独用 Rust 1.77.2 和 Tauri 2.11 再构建一个包，传到同一个草稿 Release，文件名带 `win7`：`SillyCat_x.y.z_win7_x64-setup.exe`、对应 `.sig` 和 `latest-win7.json`。主线包的构建不依赖它，它失败时（`continue-on-error`）只是这个 Release 没有 win7 附件。
+
+这一版仍提供 Win7 包作为备选。等兼容版在 Win7 真机确认可用后，再移除 Win7 包并解除 Rust 1.77.2 的限制。
 
 构建细节（都只发生在 CI 工作区，不改仓库里的 `Cargo.toml` 和 `Cargo.lock`）：
 

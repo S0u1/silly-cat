@@ -152,6 +152,10 @@ async function verifySignature(bytes, signature, publicKey, version) {
   }
 }
 
+function verifyUpdateSignature(bytes, signature, version, publicKey = PUBLIC_KEY) {
+  return verifySignature(bytes, signature, readKey(publicKey), version);
+}
+
 function parseVersion(raw) {
   if (typeof raw !== 'string') throw new Error(BAD_MANIFEST);
   const value = raw.replace(/^v+/, '');
@@ -412,4 +416,4 @@ function createElectronUpdater({ app, net, session, shell, emit, settings, selft
   });
 }
 
-module.exports = { PUBLIC_KEY, createElectronUpdater, createUpdater, fetchBytes, portableBlake2b512 };
+module.exports = { PUBLIC_KEY, createElectronUpdater, createUpdater, fetchBytes, portableBlake2b512, verifyUpdateSignature };

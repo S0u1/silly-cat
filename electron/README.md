@@ -18,7 +18,13 @@ macOS 上运行 dist 时，准备脚本按 package-lock.json 的版本和 SHA-51
 
 ## 发布签名与更新清单
 
-1. 将 package.json 和锁文件中的应用版本对齐原版 tauri.conf.json。运行自测和构建。
-2. 使用原版对应的私钥，在安全的发布环境执行 `tauri signer sign --private-key-path <私钥文件> --app-version <版本> dist/SillyCat_<版本>_electron_x64-setup.exe`。保留生成的 .sig。签名中的受信版本号必须和清单完全相同。
-3. 执行 `node tools/make-electron-manifest.mjs <版本> <标签> SillyCat_<版本>_electron_x64-setup.exe dist/SillyCat_<版本>_electron_x64-setup.exe.sig dist/latest-electron.json`。版本和标签分别填写，例如 0.0.7 与 v0.0.7。
-4. 在同一 GitHub Release 上传安装包、latest-electron.json 和供手动下载的 zip。自动更新从 releases/latest/download/latest-electron.json 获取 windows-x86_64 安装包，并在启动安装器前核对签名和版本。
+发版走 `.github/workflows/release.yml` 的 `electron` 任务。CI 检查应用版本与 `src-tauri/tauri.conf.json` 一致，测试和打包后用 Tauri 的更新密钥为最终安装包签名，再用 Electron 运行应用的验签代码，校验成功后生成 `latest-electron.json`。标签构建将安装包、`.sig`、免安装 zip 和清单上传到同一个草稿 Release。手动运行可从 workflow artifact 下载产物，缺更新密钥时只出安装包和 zip 等构建产物。
+
+自动更新从 `releases/latest/download/latest-electron.json` 获取 `windows-x86_64` 安装包，并在启动安装器前核对签名和版本。
+
+需要手动出包时，从仓库根目录执行以下步骤。
+
+1. 确认 `electron/package.json`、`electron/package-lock.json` 和 `src-tauri/tauri.conf.json` 的应用版本一致。运行 `npm ci`，再进入 `electron/` 执行 `npm ci`、`npm run selftest` 和 `npm run dist`，然后回到根目录。
+2. 在发布环境中设置 `TAURI_SIGNING_PRIVATE_KEY` 和 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`，执行 `npm run tauri -- signer sign --app-version <版本> electron/dist/SillyCat_<版本>_electron_x64-setup.exe`，保留生成的 `.sig`。
+3. 设置 `ELECTRON_RUN_AS_NODE=1`，用 `electron/node_modules/electron/dist/electron.exe`（macOS 上是同目录下的 `Electron.app/Contents/MacOS/Electron`）运行 `electron/tools/verify-update-signature.cjs <安装包路径> <.sig 路径> <版本>`。脚本默认使用内置正式公钥。
+4. 执行 `node electron/tools/make-electron-manifest.mjs <版本> <标签> <安装包文件名> <.sig 路径> electron/dist/latest-electron.json`。版本和标签分别填写，例如 `0.0.7` 与 `v0.0.7`，安装包参数只填文件名。将安装包、`.sig`、免安装 zip 和清单放在同一个草稿 Release。

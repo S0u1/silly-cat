@@ -660,7 +660,7 @@ fn main() {
         match tauri::webview_version() {
             Ok(version) => diag::log("INFO", &format!("WebView2 {version}")),
             Err(err) => diag::fatal(&format!(
-                "没找到 WebView2 运行库，请先装好它。装法见你拿到安装包的地方，或 https://github.com/S0u1/silly-cat 页面里的「常见问题」。\n{err}"
+                "没找到 WebView2 运行库，请先装好它。装法见你拿到安装包的地方，或 https://github.com/S0u1/silly-cat 页面里的「常见问题」。也可以改装文件名带 electron 的兼容版，它不需要 WebView2。\n{err}"
             )),
         }
     }

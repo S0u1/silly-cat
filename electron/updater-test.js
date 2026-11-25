@@ -79,6 +79,31 @@ async function runUpdaterTests({ inMemory = false } = {}) {
     const cli = makeCliSignature(dir, artifact, '2.0.0');
     const algorithm = Buffer.from(Buffer.from(cli.sig, 'base64').toString().split('\n')[1], 'base64').toString('ascii', 0, 2);
     assert.ok(['Ed', 'ED'].includes(algorithm));
+    const verifier = path.join(__dirname, 'tools/verify-update-signature.cjs');
+    const verify = (file, version, ...key) => {
+      const result = spawnSync(process.execPath, [verifier, file, artifact + '.sig', version, ...key], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8',
+      });
+      if (result.error) throw result.error;
+      return result;
+    };
+    const valid = verify(artifact, '2.0.0', cli.pub);
+    assert.equal(valid.status, 0, valid.stderr);
+    const wrongKey = verify(artifact, '2.0.0');
+    assert.equal(wrongKey.status, 1, wrongKey.stderr);
+    assert.match(wrongKey.stderr, /更新签名无效/);
+    const wrongVersion = verify(artifact, '2.0.1', cli.pub);
+    assert.equal(wrongVersion.status, 1, wrongVersion.stderr);
+    assert.match(wrongVersion.stderr, /signed for version 2\.0\.0/);
+    const modified = path.join(dir, 'modified.exe');
+    const modifiedBytes = Buffer.from(bytes);
+    modifiedBytes[0] ^= 1;
+    fs.writeFileSync(modified, modifiedBytes);
+    const tampered = verify(modified, '2.0.0', cli.pub);
+    assert.equal(tampered.status, 1, tampered.stderr);
+    assert.match(tampered.stderr, /更新签名无效/);
+    console.log('发布验签脚本通过（临时密钥验签、默认公钥拒绝临时签名、版本不符、单字节篡改）');
+
     const signer = await makeNodeSigner();
     const ed = await signer.sign(bytes, 'Ed', 'v2.0.0');
     const prehashed = await signer.sign(bytes, 'ED', '2.0.0');
