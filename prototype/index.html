@@ -357,6 +357,7 @@
       (ctx) => (headphones = SillyHeadphones.create(ctx, {
         invoke: desktopMode ? window.__TAURI__.core.invoke : null,
         preview: desktopMode ? null : params.get('listen'),
+        color: desktopMode ? null : params.get('hpcolor'),
         isPushing: push.isActing,
       })),
     ],
@@ -381,6 +382,7 @@
       if (!(skipUrl && statusBarParam !== null)) statusBar.setEnabled(s.statusBar);
       if (!(skipUrl && pushParam !== null)) push.setEnabled(s.push);
       if (!(skipUrl && eyesParam !== null)) cat.setEyesFollow(s.eyesFollow);
+      headphones.setColor(s.headphoneColor);
       headphones.setEnabled(s.headphones);
       if (!(skipUrl && Number.isFinite(pushEveryParam))) push.setEverySeconds(s.pushEvery);
     };

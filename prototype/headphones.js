@@ -11,6 +11,12 @@
     'M 8 0 H 10 Q 10 4 15 6 Q 18 8 15 12 Q 15 8 10 7 V 17 C 10 22 0 24 0 19 C 0 16 5 14 8 16 Z',
     'M 4 3 L 15 0 V 15 C 15 19 8 21 8 17 C 8 15 11 13 13 14 V 5 L 6 7 V 19 C 6 23 -1 24 -1 20 C -1 18 2 16 4 17 Z',
   ];
+  const STICKERS = Object.freeze({
+    strawberry: 'M 0 4 C -6 -3 -12 3 0 11 C 12 3 6 -3 0 4 Z',
+    mint: 'M 2 -9 L 9 -11 V 3 C 9 7 3 8 3 5 C 3 3 6 2 7 3 V -6 L 4 -5 V 6 C 4 10 -2 11 -2 8 C -2 6 1 5 2 6 Z',
+    latte: 'M -5 4 C -9 4 -9 10 -5 11 C -2 12 2 12 5 11 C 9 10 9 4 5 4 C 3 2 -3 2 -5 4 Z M -8 -2 a 2.6 3.2 0 1 0 0.1 0 Z M -3 -6 a 2.6 3.2 0 1 0 0.1 0 Z M 3 -6 a 2.6 3.2 0 1 0 0.1 0 Z M 8 -2 a 2.6 3.2 0 1 0 0.1 0 Z',
+    sky: 'M 0 -9 L 2.6 -3 L 9 -2.8 L 4 1.4 L 5.6 8 L 0 4.4 L -5.6 8 L -4 1.4 L -9 -2.8 L -2.6 -3 Z',
+  });
   const unit = (v) => Math.max(0, Math.min(1, v));
 
   function createListenGate({ onMs = 3000, offMs = 8000 } = {}) {
@@ -87,10 +93,26 @@
     return bounds;
   }
 
+  // 正面看耳罩只露侧边：竖胶囊贴在头两侧，内缘缩进头轮廓外 2k，被头和毛挡住一部分。
+  // left/right 是两侧耳罩侧边的中线，rx/ry 是侧边的半宽、半高。
+  const CUP_W = 27, CUP_H = 70, CUP_GAP = 2;
+  // 贴纸在头顶软垫上居中：各图形自身的竖向中心。
+  const STICKER_CY = Object.freeze({ strawberry: 4.5, mint: 0, latte: 1.5, sky: -0.5 });
+
   function geometry({ x0, x1, y0, y1 }) {
     const w = x1 - x0, k = w / 260, cx = (x0 + x1) / 2;
-    const left = x0 + 2 * k, right = x1 - 2 * k, cy = (y0 + y1) / 2;
-    return { w, k, cx, cy, left, right, top: y0 + 8 * k, cupW: 40 * k, cupH: 62 * k };
+    const rx = CUP_W / 2 * k, ry = CUP_H / 2 * k;
+    const left = x0 - CUP_GAP * k - rx, right = x1 + CUP_GAP * k + rx, cy = y0 + 0.52 * (y1 - y0);
+    return {
+      w, k, cx, cy, left, right, top: y0 + 6 * k, rx, ry,
+      // 保留第一版的音符起点。
+      noteX: 128 * k, noteY: (y0 + y1) / 2 - 31 * k - 6,
+    };
+  }
+
+  function stickerTransform(color, { k, cx, top }) {
+    const s = 0.85 * k;
+    return `translate(${cx} ${top - STICKER_CY[color] * s}) scale(${s})`;
   }
 
   function svg(tag, className, parent) {
@@ -100,32 +122,49 @@
     return node;
   }
 
-  function makeHeadset(parent) {
-    const group = svg('g', 'hp-headset', parent);
-    group.setAttribute('aria-hidden', 'true');
-    group.style.display = 'none';
-    return { group };
+  function makeHeadset(parent, rightEar) {
+    const rear = svg('g', 'hp-headset hp-headset-rear', parent);
+    // art.js 换猫或画风时紧贴原轮廓插入头图。以耳朵为锚点，耳罩始终先于头图绘制。
+    rightEar.after(rear);
+    const foreground = svg('g', 'hp-headset hp-headset-front', parent);
+    const layers = [rear, foreground];
+    for (const layer of layers) {
+      layer.setAttribute('aria-hidden', 'true');
+      layer.style.display = 'none';
+    }
+    return { rear, foreground, layers };
   }
 
   function layout(headset, bounds) {
-    const { group } = headset;
+    const { rear, foreground, color } = headset;
     const g = headset.geometry = geometry(bounds);
-    const { k, cx, cy, left, right, cupW, cupH } = g;
-    const arc = (inset) => {
-      const rx = cx - left - inset, ry = cy - g.top - inset;
-      return `M ${left + inset} ${cy} A ${rx} ${ry} 0 0 1 ${right - inset} ${cy}`;
-    };
+    const { k, cx, cy, left, right, top, rx, ry } = g;
+    const y = cy - ry; // 耳罩侧边顶端
+    const ya = y - 4 * k; // 头带两端落在支架里
+    const arc = `M ${left} ${ya} A ${(right - left) / 2} ${ya - top} 0 0 1 ${right} ${ya}`;
+    // inward：画面左侧为 1（向右是头内侧），右侧为 -1。
     const sides = [[left, 1], [right, -1]];
-    const rects = (name, w, h, r, offset) => sides.map(([x, inward]) =>
-      `<rect class="hp-${name}" x="${x + offset * inward - w / 2}" y="${cy - h / 2}" width="${w}" height="${h}" rx="${r}"/>`
-    ).join('');
-    group.innerHTML = `
-      <path class="hp-band-outline" d="${arc(0)}" stroke-width="${10 * k + 8}"/>
-      <path class="hp-band" d="${arc(0)}" stroke-width="${10 * k}"/>
-      <path class="hp-band-shine" d="${arc(2 * k)}"/>
-      ${rects('pad', 12 * k, 50 * k, 6 * k, cupW / 2 + 2 * k)}
-      ${rects('cup', cupW, cupH, 16 * k, 0)}
-      ${rects('plate', 24 * k, 44 * k, 10 * k, -3 * k)}`;
+    rear.innerHTML = sides.map(([x, inward]) => {
+      const inner = x + inward * rx, outer = x - inward * rx;
+      const padX = inner - inward * 3 * k;
+      const rim = outer + inward * 8 * k;
+      return `<g>
+        <rect class="hp-pad" x="${Math.min(padX, padX + inward * 9 * k)}" y="${cy - 28 * k}"
+          width="${9 * k}" height="${56 * k}" rx="${4.5 * k}"/>
+        <rect class="hp-cup" x="${x - rx}" y="${y}" width="${2 * rx}" height="${2 * ry}" rx="${rx}"/>
+        <path class="hp-line hp-rim" d="M ${rim} ${y + 9 * k} Q ${rim - inward * 1.5 * k} ${cy} ${rim} ${y + 2 * ry - 9 * k}"
+          stroke-width="${6 * k}"/>
+        <path class="hp-line hp-cup-shine" d="M ${x + inward * 2 * k} ${y + 12 * k} V ${y + 30 * k}"/>
+      </g>`;
+    }).join('');
+    foreground.innerHTML = `
+      <path class="hp-line hp-band-outline" d="${arc}" stroke-width="${12 * k + 9}"/>
+      <path class="hp-line hp-band" d="${arc}" stroke-width="${12 * k}"/>
+      <rect class="hp-cushion" x="${cx - 31 * k}" y="${top - 11 * k}" width="${62 * k}" height="${22 * k}" rx="${11 * k}"/>
+      <rect class="hp-seam" x="${cx - 25 * k}" y="${top - 5 * k}" width="${50 * k}" height="${10 * k}" rx="${5 * k}"/>
+      <path class="hp-sticker" d="${STICKERS[color]}" transform="${stickerTransform(color, g)}"/>
+      ${sides.map(([x]) => `
+        <rect class="hp-bracket" x="${x - 5 * k}" y="${y - 12 * k}" width="${10 * k}" height="${20 * k}" rx="${4 * k}"/>`).join('')}`;
   }
 
   function updatePath(headset, path) {
@@ -179,14 +218,29 @@
     };
   }
 
-  function create(ctx, { invoke, preview, isPushing } = {}) {
+  function create(ctx, { invoke, preview, color, isPushing } = {}) {
     const { S, STATES, el, headToScene, reducedMotion } = ctx;
     const start = performance.now();
-    const front = makeHeadset(el.head);
+    const front = makeHeadset(el.head, document.getElementById('ear-r'));
     const backHead = document.getElementById('strike-head-shape');
-    const back = makeHeadset(backHead);
+    const back = makeHeadset(backHead, document.getElementById('strike-ear-r').parentElement);
     const noteLayer = svg('g', 'hp-notes', document.getElementById('fx-layer'));
     noteLayer.setAttribute('aria-hidden', 'true');
+
+    function setColor(value) {
+      const next = window.SillySettings.normalizeHeadphoneColor(value);
+      if (front.color === next) return;
+      for (const headset of [front, back]) {
+        headset.color = next;
+        for (const layer of headset.layers) layer.dataset.hpColor = next;
+        for (const sticker of headset.foreground.querySelectorAll('.hp-sticker')) {
+          sticker.setAttribute('d', STICKERS[next]);
+          if (headset.geometry) sticker.setAttribute('transform', stickerTransform(next, headset.geometry));
+        }
+      }
+    }
+    setColor(color);
+
     let wearing = preview === '1', transition = null;
     let mix = 0, lastPose = start, nextNote = null, noteKind = 0, canFloat = false;
     const notes = [];
@@ -224,8 +278,8 @@
 
     function spawn(now) {
       if (notes.length >= 2) return;
-      const { left, right, cy, cupH } = front.geometry;
-      const at = headToScene(Math.random() < 0.5 ? left : right, cy - cupH / 2 - 6);
+      const { cx, noteX, noteY } = front.geometry;
+      const at = headToScene(cx + (Math.random() < 0.5 ? -noteX : noteX), noteY);
       const node = svg('path', 'hp-note', noteLayer);
       node.setAttribute('d', NOTES[noteKind]);
       noteKind = 1 - noteKind;
@@ -237,11 +291,12 @@
         const frame = sample(transition, wearing, now, rm);
         updatePath(front, el.headClip);
         updateBack(back, backHead);
-        for (const headset of [front, back]) {
-          const { group, geometry: g } = headset;
-          group.style.display = !wearing && frame.done ? 'none' : '';
-          group.setAttribute('transform', `translate(0 ${frame.y * g.w})`);
-          group.setAttribute('opacity', frame.opacity);
+        for (const { layers, geometry: { w } } of [front, back]) {
+          for (const layer of layers) {
+            layer.style.display = !wearing && frame.done ? 'none' : '';
+            layer.setAttribute('transform', `translate(0 ${frame.y * w})`);
+            layer.setAttribute('opacity', frame.opacity);
+          }
         }
         if (transition && frame.done) {
           transition = null;
@@ -269,8 +324,8 @@
       }
     }
 
-    return { pose, render, setEnabled: poller.setEnabled };
+    return { pose, render, setColor, setEnabled: poller.setEnabled };
   }
 
-  window.SillyHeadphones = { create, createListenGate, createMediaPoller, probe, headBounds, geometry };
+  window.SillyHeadphones = { create, createListenGate, createMediaPoller, probe, headBounds, geometry, STICKERS };
 })();

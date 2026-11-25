@@ -8,7 +8,6 @@
   --bg: #dfe6f5;
   --cream: #fbf6ea;
   --cream-dark: #e8dfca;
-  --hp-band: #4a4752;
   --coral: #ff7a59;
   --coat-base: var(--fur-white);
   --coat-ear: var(--fur-black);
@@ -171,14 +170,14 @@ html[data-cat="sphynx"] {
 
 * { box-sizing: border-box; }
 
-html, body {
+html:where(:not(.settings-page)), :where(html:not(.settings-page)) body {
   margin: 0;
   height: 100%;
   overflow: hidden;
   background: var(--bg);
 }
 
-body {
+:where(html:not(.settings-page)) body {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -189,7 +188,7 @@ body {
   -webkit-user-select: none;
 }
 
-.hint {
+:where(html:not(.settings-page)) .hint {
   flex: none;
   padding: 14px 16px 0;
   text-align: center;
@@ -472,14 +471,47 @@ html.desktop #perm-bubble { cursor: pointer; }
 
 #scene .art-replaced { display: none !important; }
 
+[data-hp-color="strawberry"] {
+  --hp-cup: #ffb4c6;
+  --hp-plate: #ff8fab;
+  --hp-band: #ff8fab;
+  --hp-cushion: #fbf6ea;
+  --hp-sticker: #ff8fab;
+}
+[data-hp-color="mint"] {
+  --hp-cup: #a6e3cc;
+  --hp-plate: #74cfab;
+  --hp-band: #67c9a5;
+  --hp-cushion: #fbf6ea;
+  --hp-sticker: #4fbf97;
+}
+[data-hp-color="latte"] {
+  --hp-cup: #fbf6ea;
+  --hp-plate: #e9c9a8;
+  --hp-band: #b98b6a;
+  --hp-cushion: #ff9eb0;
+  --hp-sticker: #b98b6a;
+}
+[data-hp-color="sky"] {
+  --hp-cup: #b9d8ff;
+  --hp-plate: #8fbdf5;
+  --hp-band: #7fb2f0;
+  --hp-cushion: #fff3c4;
+  --hp-sticker: #7fb2f0;
+}
+
 #scene .hp-headset, #scene .hp-notes { pointer-events: none; }
-#scene .hp-headset path { fill: none; stroke-linecap: round; }
+#scene .hp-headset .hp-line { fill: none; stroke-linecap: round; }
 #scene .hp-band-outline { stroke: var(--ink); }
 #scene .hp-band { stroke: var(--hp-band); }
-#scene .hp-band-shine { stroke: var(--cream); stroke-width: 2.2; opacity: 0.55; }
-#scene .hp-pad { fill: var(--pink); stroke: var(--ink); stroke-width: 3.5; }
-#scene .hp-cup { fill: var(--cream); stroke: var(--ink); stroke-width: 5; }
-#scene .hp-plate { fill: var(--cream-dark); stroke: var(--ink); stroke-width: 2.5; }
+#scene .hp-cushion { fill: var(--hp-cushion); stroke: var(--ink); stroke-width: 4.5; }
+#scene .hp-seam { fill: none; stroke: var(--ink); stroke-width: 2; stroke-opacity: 0.35; stroke-dasharray: 4 4; }
+#scene .hp-bracket { fill: var(--hp-band); stroke: var(--ink); stroke-width: 3.5; }
+#scene .hp-cup { fill: var(--hp-cup); stroke: var(--ink); stroke-width: 5; }
+#scene .hp-pad { fill: var(--cream); stroke: var(--ink); stroke-width: 3.5; }
+#scene .hp-rim { stroke: var(--hp-plate); }
+#scene .hp-cup-shine { stroke: #fff; stroke-width: 3.5; stroke-opacity: 0.85; }
+.hp-sticker { fill: var(--hp-sticker); stroke: var(--ink); stroke-width: 1.2; stroke-opacity: 0.35; }
 #scene .hp-note {
   fill: var(--ink);
   stroke: var(--cream);

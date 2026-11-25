@@ -171,6 +171,17 @@ test('old settings default to off and saved booleans survive sanitization', () =
   assert.equal(settings.sanitize({ headphones: true }).headphones, true);
 });
 
+test('saved headphone colors survive sanitization and missing or invalid values use strawberry', () => {
+  const { SillySettings: settings } = load(['settings.js']);
+  for (const headphoneColor of ['strawberry', 'mint', 'latte', 'sky']) {
+    assert.equal(settings.sanitize({ headphoneColor }).headphoneColor, headphoneColor);
+  }
+  for (const headphoneColor of ['pink', 'constructor', '__proto__', '', 3, null]) {
+    assert.equal(settings.sanitize({ headphoneColor }).headphoneColor, 'strawberry');
+  }
+  assert.equal(settings.sanitize({}).headphoneColor, 'strawberry');
+});
+
 test('all ten real coat outlines give both cups eye clearance and a centered band in each style', () => {
   const d = read('index.html').match(/id="clip-head-path" d="([^"]+)"/)[1];
   const elements = new Map();
@@ -213,13 +224,15 @@ test('all ten real coat outlines give both cups eye clearance and a centered ban
       const path = element('clip-head-path').getAttribute('d');
       assert.equal(path, coat.art?.headPath ?? d, label);
       const bounds = HP.headBounds(path);
-      const { k, w, top, left, right, cupW } = HP.geometry(bounds);
-      const halfCup = cupW / 2 + 2.5; // 包含 5 单位的耳罩描边
-      assert.ok(345 - 29 - (left + halfCup) >= 6, label);
-      assert.ok(right - halfCup - (455 + 29) >= 6, label);
+      const { k, w, top, left, right, rx, ry } = HP.geometry(bounds);
+      // 侧面耳罩整条在头轮廓外：内缘离轮廓 2k，耳垫最多伸进轮廓 4k，都离眼睛圆 6 以上。
+      assert.ok(345 - 29 - (bounds.x0 + 4 * k + 2) >= 6, label);
+      assert.ok(bounds.x1 - 4 * k - 2 - (455 + 29) >= 6, label);
       assert.ok(top >= bounds.y0 && top <= bounds.y0 + 0.06 * w, label);
-      assert.ok(left > bounds.x0 && left - bounds.x0 <= 4 * k, label);
-      assert.ok(right < bounds.x1 && bounds.x1 - right <= 4 * k, label);
+      assert.ok(Math.abs(left + rx - (bounds.x0 - 2 * k)) < 1e-9, label);
+      assert.ok(Math.abs(right - rx - (bounds.x1 + 2 * k)) < 1e-9, label);
+      assert.ok(Math.abs(rx - 13.5 * k) < 1e-9, label);
+      assert.ok(Math.abs(ry - 35 * k) < 1e-9, label);
     }
   }
 });

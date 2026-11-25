@@ -5,6 +5,7 @@ import argparse
 import base64
 import io
 import json
+import re
 import select
 import subprocess
 import sys
@@ -23,7 +24,13 @@ from readme_images import CATS, CLOCK, NATIVE, ROOT, SCENE_STYLE, WEB
 
 OUTPUT = ROOT / '.art-src/headphones-check'
 BG = '#fbf6ea'
-BASE_H = 1368
+BASE_H = int(re.search(r'BASE_H = (\d+)', (WEB / 'settings.html').read_text())[1])
+PALETTES = [
+    ('strawberry', '草莓奶', '#ffb4c6'),
+    ('mint', '薄荷', '#a6e3cc'),
+    ('latte', '奶咖', '#fbf6ea'),
+    ('sky', '天蓝', '#b9d8ff'),
+]
 # 沿用 README 的固定随机种子与虚拟钟，最后一小步对齐指定毫秒。
 CLOCK += """
 window.advanceTo = at => {
@@ -42,7 +49,9 @@ console.error = (...args) => sceneErrors.push(args.map(String).join(' '));
 """
 SETTINGS_STUB = """
 window.probeCalls = 0;
-window.__TAURI__ = { event: {listen: async () => () => {}}, core: { invoke: async cmd => {
+window.savedSettings = [];
+window.__TAURI__ = { event: {listen: async () => () => {}}, core: { invoke: async (cmd, args) => {
+  if (cmd === 'save_settings') savedSettings.push(args.settings);
   if (cmd === 'media_activity') {
     probeCalls++;
     if (PROBE === 'error') throw new Error('IPC failed');
@@ -53,7 +62,7 @@ window.__TAURI__ = { event: {listen: async () => () => {}}, core: { invoke: asyn
           app_version: 'QA', input_status: {needs_permission: false}}[cmd] ?? null;
 } } };
 """
-SELECTOR = {'front': '#cat-head > .hp-headset', 'back': '#strike-head-shape > .hp-headset'}
+SELECTOR = {'front': '#cat-head', 'back': '#strike-head-shape'}
 CASES = [
     ('醒着 · 摆头', {}, 2700, 'awake', None),
     ('犯困', {'sleep': 4}, 2850, 'drowsy', None),
@@ -195,12 +204,17 @@ def wait_for_art(ev):
 
 def headset(ev, facing='front'):
     return ev(rf"""(() => {{
-      const g = document.querySelector('{SELECTOR[facing]}');
-      return {{ opacity: Number(g.getAttribute('opacity')), display: g.style.display,
-                y: Number(g.getAttribute('transform')?.match(/translate\(0 ([^)]+)/)?.[1]),
-                cups: g.querySelectorAll('.hp-cup').length }};
+      const parent = document.querySelector('{SELECTOR[facing]}');
+      const rear = parent.querySelector(':scope > .hp-headset-rear');
+      const front = parent.querySelector(':scope > .hp-headset-front');
+      for (const key of ['opacity', 'transform']) {{
+        if (rear.getAttribute(key) !== front.getAttribute(key)) throw new Error('Layer mismatch: ' + key);
+      }}
+      if (rear.style.display !== front.style.display) throw new Error('Layer visibility mismatch');
+      return {{ opacity: Number(rear.getAttribute('opacity')), display: rear.style.display,
+                y: Number(rear.getAttribute('transform')?.match(/translate\(0 ([^)]+)/)?.[1]),
+                cups: rear.querySelectorAll('.hp-cup').length }};
     }})()""")
-
 
 def assert_worn(ev, facing='front'):
     result = headset(ev, facing)
@@ -230,18 +244,91 @@ def sheet(rows, names, path):
     grid.save(OUTPUT / path, optimize=True)
 
 
+def assert_layer_order(ev):
+    assert ev("""['#cat-head', '#strike-head-shape'].every(sel => {
+      const head = document.querySelector(sel);
+      const rear = head.querySelector(':scope > .hp-headset-rear');
+      return rear.previousElementSibling.matches('#ear-r, .ear-shape-r')
+        && rear.nextElementSibling.matches('image, path.coat-base')
+        && head.lastElementChild.matches('.hp-headset-front');
+    })""")
+
+
+def exposed_cups(ev, capture):
+    # Compare the same horizontal slice with the head shown and hidden.
+    marker = (0, 255, 96)
+    centers = ev("""(() => {
+      const style = document.createElement('style');
+      style.id = 'hp-probe-style';
+      style.textContent = '#scene #cat-head .hp-cup { fill: rgb(0,255,96); stroke: rgb(0,255,96) }'
+        + '#cat-head .hp-headset-front, #cat-head .hp-headset-rear g > :not(.hp-cup) { visibility: hidden }'
+        + '#cat-head.hp-uncovered > .hp-headset-rear ~ * { visibility: hidden !important }';
+      document.head.append(style);
+      return [...document.querySelectorAll('#cat-head .hp-cup')].map(cup => {
+        const x = cup.x.baseVal.value + cup.width.baseVal.value / 2;
+        const y = cup.y.baseVal.value + cup.height.baseVal.value / 2;
+        const center = new DOMPoint(x, y).matrixTransform(cup.getScreenCTM());
+        return [center.x, center.y];
+      });
+    })()""")
+    covered = capture()
+    ev("document.querySelector('#cat-head').classList.add('hp-uncovered')")
+    uncovered = capture()
+    ev("document.querySelector('#cat-head').classList.remove('hp-uncovered'), "
+       "document.querySelector('#hp-probe-style').remove()")
+
+    def width(im, center, side):
+        x0, x1 = (0, im.width // 2) if side == 0 else (im.width // 2, im.width)
+        y = round(center[1])
+        return sum(im.getpixel((x, y)) == marker for x in range(x0, x1))
+
+    return [width(covered, center, side) / width(uncovered, center, side)
+            for side, center in enumerate(centers)]
+
+
 def coats(open_page, style):
-    frames = []
+    frames, exposed = [], []
     with scene(open_page, (340, 260), {'style': style}, '65 -33 670 627') as (ev, capture):
         for cat, _ in CATS:
             ev(f"SillyCoats.apply('{cat}'), advance(8)")
             assert_worn(ev)
             assert ev("Boolean(document.querySelector('#cat-head > image'))") == (style == 'fur')
-            assert ev("document.querySelector('#cat-head').lastElementChild.matches('.hp-headset')")
+            assert_layer_order(ev)
             wait_for_art(ev)
+            fractions = exposed_cups(ev, capture)
+            assert min(fractions) >= 0.4, (cat, style, fractions)
+            exposed.extend(fractions)
             frames.append(capture())
+        for next_style in ('line' if style == 'fur' else 'fur', style):
+            ev(f"SillyCoats.setArtStyle('{next_style}', 'cow'), advance(1)")
+            assert_worn(ev)
+            assert_layer_order(ev)
+    print(f'{style} coats: minimum cup exposure {min(exposed):.0%}', flush=True)
     labels = [name for _, name in CATS]
     sheet([frames[:5], frames[5:]], [labels[:5], labels[5:]], f'{style}-10.png')
+
+
+def palettes(open_page):
+    featured = [CATS[i] for i in (0, 4, 7, 3)]
+    rows, labels = [], []
+    for color, color_name, cup in PALETTES:
+        frames = []
+        with scene(open_page, (335, 236), {'hpcolor': color}, '195 -6 410 290') as (ev, capture):
+            for cat, _ in featured:
+                ev(f"SillyCoats.apply('{cat}'), advance(8)")
+                assert_worn(ev)
+                assert ev(f"""[...document.querySelectorAll('.hp-headset')].every(g =>
+                    g.dataset.hpColor === '{color}')
+                  && [...document.querySelectorAll('.hp-cup')].every(cup =>
+                    getComputedStyle(cup).getPropertyValue('--hp-cup').trim() === '{cup}')
+                  && [...document.querySelectorAll('.hp-headset .hp-sticker')].every(sticker =>
+                    sticker.getAttribute('d') === SillyHeadphones.STICKERS.{color}
+                    && getComputedStyle(sticker).fill !== 'none')"""), (cat, color)
+                wait_for_art(ev)
+                frames.append(capture())
+        rows.append(frames)
+        labels.append([f'{name} · {color_name}' for _, name in featured])
+    sheet(rows, labels, 'palettes.png')
 
 
 def states(open_page):
@@ -363,9 +450,24 @@ def settings(open_page):
                       f"about bottom {dims['about']} px, reset bottom {dims['reset']} px, "
                       f"without headphones row {baseline} px",
                       flush=True)
-                assert dims['reset'] <= dims['viewport'] and dims['about'] <= dims['viewport'], dims
+                assert dims['content'] <= dims['viewport'], dims
                 if platform == 'macos':
                     capture().save(OUTPUT / 'settings.png', optimize=True)
+                    assert ev("""document.querySelector('input[name="headphoneColor"]:checked').value === 'strawberry'
+                        && getComputedStyle(document.querySelector('#hp-colors')).opacity === '0.5'""")
+                    ev("""document.querySelector('input[value="mint"]').click(),
+                          document.querySelector('input[value="sky"]').click()""")
+                    assert ev('savedSettings.length') == 0
+                    wait_until(ev, 'savedSettings.length === 1')
+                    assert ev('savedSettings[0].headphoneColor') == 'sky'
+                    assert ev('savedSettings[0].headphones') is False
+                    ev("document.querySelector('#f-headphones').click()")
+                    assert ev("getComputedStyle(document.querySelector('#hp-colors')).opacity") == '1'
+                    wait_until(ev, 'savedSettings.length === 2')
+                    assert ev('savedSettings[1].headphoneColor') == 'sky'
+                    ev("document.querySelector('#reset').click()")
+                    wait_until(ev, 'savedSettings.length === 3')
+                    assert ev('savedSettings[2].headphoneColor') == 'strawberry'
 
 
 def main():
@@ -376,6 +478,7 @@ def main():
     with renderer(args.offline_webkit) as open_page:
         for style in ('fur', 'line'):
             coats(open_page, style)
+        palettes(open_page)
         states(open_page)
         animation(open_page)
         check_motion(open_page)
