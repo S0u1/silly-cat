@@ -20,9 +20,15 @@ on:
         options:
           - tauri
           - script
+      only_electron:
+        description: 只打 Electron 兼容版（跳过原版和 Win7 版，用于单独调试兼容版的打包）
+        type: boolean
+        default: false
 
 jobs:
   build:
+    # 标签推送时 inputs 为空，照常构建
+    if: ${{ !inputs.only_electron }}
     permissions:
       contents: write # 创建 Release、上传安装包
     env:
@@ -273,7 +279,7 @@ jobs:
   # Win7 的上传步骤会报找不到 Release。
   win7:
     needs: build
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && !inputs.only_electron }}
     runs-on: windows-latest
     continue-on-error: true
     permissions:
