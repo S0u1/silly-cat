@@ -433,7 +433,6 @@ jobs:
     needs: build
     if: ${{ !cancelled() }}
     runs-on: windows-latest
-    continue-on-error: true
     permissions:
       contents: write
     env:
@@ -518,6 +517,15 @@ jobs:
             Write-Output '::warning::Electron 窗口自检未通过，请查看步骤日志和摘要。'
           }
 
+      - name: 安装音频检测程序的 Win7 工具链
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.77.2
+          targets: x86_64-pc-windows-msvc
+
+      - name: 构建音频检测程序
+        run: cargo +1.77.2 build --release --locked --manifest-path tools/audio-probe/Cargo.toml
+
       - name: 构建兼容版安装包和免安装包
         working-directory: electron
         # 用 bash：PowerShell 会把 -c.win.xxx 从点处拆成 -c 和 .win.xxx，electron-builder 会把后者当配置文件路径。
@@ -536,6 +544,7 @@ jobs:
           modules=electron/dist/win-unpacked/resources/app.asar.unpacked/node_modules
           failed=0
           for module in \
+            "electron/dist/win-unpacked/resources/audio-probe/silly-audio-probe.exe" \
             "$modules/@koromix/koffi-win32-x64/win32_x64/koffi.node" \
             "$modules/uiohook-napi/prebuilds/win32-x64/uiohook-napi.node"; do
             if ! python tools/win7-check-imports.py "$module" >> "$report" 2>&1; then

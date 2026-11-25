@@ -266,7 +266,7 @@
       mouseSide, mouseActiveUntil: 0, mouseButtons: new Set(), mouseOff: { x: 0, y: 0 },
       pet: null,                        // { nx, ny }
       shakeStart: -1e9, nodStart: -1e9, lastKeyAt: -1e9, lookCode: null, lookSide: 'R',
-      pointer: null, followingPointer: false,
+      pointer: null, followingPointer: false, lastPointerMove: t0,
       lid: 0.18, pupil: { L: { x: 0, y: 1 }, R: { x: 0, y: 1 } }, pupilR: 13,
       nextBlink: t0 + 3000 + Math.random() * 3000, blinkUntil: 0,
       twitch: { ear: null, start: -1e9 }, nextTwitch: t0 + 5000 + Math.random() * 5000,
@@ -395,6 +395,7 @@
         if (guard('pointerMove', null)) return;
         const now = performance.now();
         // 只移动鼠标不算「在干活」：不重置入睡计时，猫照样会犯困、睡着
+        S.lastPointerMove = now;
         S.mouseActiveUntil = now + MOUSE_HOLD_MS;
         S.mouseOff.x = clamp(S.mouseOff.x + dx * 0.25, -6, 6);
         S.mouseOff.y = clamp(S.mouseOff.y + dy * 0.25, -6, 6);
@@ -700,9 +701,10 @@
       // 平时的中线：绕尾根转 tailAngle，再跟着身体平移
       const a = S.tailAngle * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
       const bx = P.bodyX, by = P.lift + P.bodyY;
-      const idle = TAIL_IDLE.map((p) => {
+      const idle = TAIL_IDLE.map((p, i) => {
         const vx = p.x - TAIL_PIVOT.x, vy = p.y - TAIL_PIVOT.y;
-        return { x: TAIL_PIVOT.x + vx * ca - vy * sa + bx, y: TAIL_PIVOT.y + vx * sa + vy * ca + by };
+        const lift = !want && r === 0 ? P.tailTipLift * (i / (TAIL_N - 1)) ** 3 : 0;
+        return { x: TAIL_PIVOT.x + vx * ca - vy * sa + bx, y: TAIL_PIVOT.y + vx * sa + vy * ca + by - lift };
       });
 
       // 尾尖按键：按下时压下去、挪到按的那颗键上并略微压扁；松开时弹一下
@@ -829,7 +831,7 @@
     function defaultPose() {
       return {
         headX: 0, headY: 0, headRot: 0, bodyX: 0, bodyY: 0, bodyRot: 0, lift: 0,
-        earDroop: 0, breath: 1, lidMin: 0, tailAmp: null, tailSpeed: 0,
+        earDroop: 0, breath: 1, lidMin: 0, tailAmp: null, tailSpeed: 0, tailTipLift: 0,
         pawTau: 1, pressBoost: 0, zzzDx: 0, zzzDy: 0, mouseX: 0, mouseY: 0, mouseRot: 0, hideCat: false,
         turnSX: 1, eyesClosed: false, eyesHappy: false, look: null, cheek: 0, mouseAbs: null, mouseHidden: false,
         headSX: 1, headSY: 1, bodySX: 1, bodySY: 1, // 乘法：头以 400,262、身体以 400,410 为基准缩放

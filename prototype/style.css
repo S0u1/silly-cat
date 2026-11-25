@@ -8,6 +8,7 @@
   --bg: #dfe6f5;
   --cream: #fbf6ea;
   --cream-dark: #e8dfca;
+  --hp-band: #4a4752;
   --coral: #ff7a59;
   --coat-base: var(--fur-white);
   --coat-ear: var(--fur-black);
@@ -470,3 +471,19 @@ html.desktop #perm-bubble { cursor: pointer; }
 #scene #perm-bubble:hover .perm-bubble-shape { fill: var(--cream); }
 
 #scene .art-replaced { display: none !important; }
+
+#scene .hp-headset, #scene .hp-notes { pointer-events: none; }
+#scene .hp-headset path { fill: none; stroke-linecap: round; }
+#scene .hp-band-outline { stroke: var(--ink); }
+#scene .hp-band { stroke: var(--hp-band); }
+#scene .hp-band-shine { stroke: var(--cream); stroke-width: 2.2; opacity: 0.55; }
+#scene .hp-pad { fill: var(--pink); stroke: var(--ink); stroke-width: 3.5; }
+#scene .hp-cup { fill: var(--cream); stroke: var(--ink); stroke-width: 5; }
+#scene .hp-plate { fill: var(--cream-dark); stroke: var(--ink); stroke-width: 2.5; }
+#scene .hp-note {
+  fill: var(--ink);
+  stroke: var(--cream);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}

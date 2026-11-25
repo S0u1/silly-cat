@@ -238,7 +238,7 @@ async function showSettings() {
     return;
   }
   const area = screen.getDisplayMatching(win.getBounds()).workArea;
-  const height = Math.max(1, Math.min(1288, area.height - 40));
+  const height = Math.max(1, Math.min(1368, area.height - 40));
   const window = new BrowserWindow({
     width: 400, height, useContentSize: true, title: '捣蛋猫 · 设置',
     show: false, frame: true, skipTaskbar: false, resizable: false,
@@ -371,7 +371,7 @@ function boot() {
   }
   app.on('second-instance', () => { if (win && !win.isDestroyed()) win.showInactive(); });
   app.on('child-process-gone', (_, d) => log('ERROR', 'child-process-gone ' + JSON.stringify(d)));
-  app.on('before-quit', () => { updater?.stop(); hook.stop(); endDrag(); flushPosition(); });
+  app.on('before-quit', () => { stopAudioProbe(); updater?.stop(); hook.stop(); endDrag(); flushPosition(); });
   app.on('window-all-closed', () => app.quit());
   process.on('uncaughtException', e => fatal('桌宠运行异常', e.stack || e.message));
   process.on('unhandledRejection', e => log('ERROR', 'unhandledRejection ' + (e?.stack || String(e))));
@@ -624,8 +624,69 @@ function openLink(target) {
   if (process.platform === 'win32') return shell.openExternal(url);
 }
 
+const unsupportedAudio = Object.freeze({ supported: false, active: false, via: 'none' });
+let audioChild, audioIdleTimer, audioSample;
+let needsRestart = false;
+let audioRestarts = [];
+let restartWarning = false;
+
+function stopAudioProbe() {
+  clearTimeout(audioIdleTimer);
+  const child = audioChild;
+  audioChild = audioSample = undefined;
+  if (child) {
+    child.stdin.end();
+    child.kill();
+  }
+}
+
+function mediaActivity() {
+  if (process.platform !== 'win32') return unsupportedAudio;
+  const now = performance.now();
+  if (!audioChild) {
+    const exe = app?.isPackaged
+      ? path.join(process.resourcesPath, 'audio-probe', 'silly-audio-probe.exe')
+      : path.join(__dirname, '../tools/audio-probe/target/release/silly-audio-probe.exe');
+    if (!fs.existsSync(exe)) return unsupportedAudio;
+    if (needsRestart) {
+      audioRestarts = audioRestarts.filter(t => now - t < 600000);
+      if (audioRestarts.length >= 3) {
+        if (!restartWarning) log('WARN', '音频检测程序在 10 分钟内已重启 3 次，暂停检测');
+        restartWarning = true;
+        return unsupportedAudio;
+      }
+      audioRestarts.push(now);
+    }
+    needsRestart = restartWarning = false;
+    const child = require('child_process').spawn(exe, ['--exclude-pid', String(process.pid)], {
+      windowsHide: true, stdio: ['pipe', 'pipe', 'ignore']
+    });
+    audioChild = child;
+    const exited = () => {
+      if (audioChild !== child) return;
+      clearTimeout(audioIdleTimer);
+      audioChild = audioSample = undefined;
+      needsRestart = true;
+    };
+    child.once('error', exited);
+    child.once('exit', exited);
+    const lines = require('readline').createInterface({ input: child.stdout, crlfDelay: Infinity });
+    lines.on('line', line => {
+      if (audioChild !== child) return;
+      try {
+        const { active } = JSON.parse(line);
+        if (typeof active === 'boolean') audioSample = { active, time: performance.now() };
+      } catch (_) {}
+    });
+  }
+  clearTimeout(audioIdleTimer);
+  audioIdleTimer = setTimeout(stopAudioProbe, 10000);
+  return { supported: true, active: !!audioSample?.active && now - audioSample.time <= 3000, via: 'meter' };
+}
+
 function invokeCommand(command, args) {
   switch (command) {
+    case 'media_activity': return mediaActivity();
     case 'platform_flags': return { win7: win7Card };
     case 'load_settings': return loadSettings();
     case 'save_settings': {

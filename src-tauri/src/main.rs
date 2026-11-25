@@ -6,6 +6,12 @@
 
 mod autostart;
 mod diag;
+#[cfg(target_os = "macos")]
+mod media_mac;
+#[cfg(windows)]
+mod media_win;
+#[cfg(windows)]
+mod media_worker;
 mod updater;
 
 #[cfg(target_os = "macos")]
@@ -306,6 +312,24 @@ struct PlatformFlags {
     win7: bool,
 }
 
+#[derive(Serialize)]
+struct MediaActivity {
+    supported: bool,
+    active: bool,
+    via: &'static str,
+}
+
+#[tauri::command]
+async fn media_activity() -> MediaActivity {
+    #[cfg(target_os = "macos")]
+    let (active, via) = media_mac::sample();
+    #[cfg(windows)]
+    let (active, via) = (media_worker::latest(), "meter");
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let (active, via) = (false, "none");
+    MediaActivity { supported: via != "none", active, via }
+}
+
 #[tauri::command]
 fn platform_flags() -> PlatformFlags {
     PlatformFlags { win7: is_win7() }
@@ -488,7 +512,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 }
 
 /// 设置窗口的默认高度，和 settings.html 的 BASE_H 一致。留一点字体换行余量，授权提示显示时由页面加高。
-const SETTINGS_HEIGHT: f64 = 1288.0;
+const SETTINGS_HEIGHT: f64 = 1368.0;
 
 fn show_settings(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
@@ -690,6 +714,7 @@ fn main() {
             open_settings,
             app_version,
             platform_flags,
+            media_activity,
             open_link,
             autostart::autostart_status,
             autostart::set_autostart,

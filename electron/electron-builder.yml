@@ -37,6 +37,8 @@ asarUnpack:
   - node_modules/@koromix/koffi-win32-x64/win32_x64/*.node
   - node_modules/uiohook-napi/prebuilds/win32-x64/*.node
 extraResources:
+  - from: ../tools/audio-probe/target/release/silly-audio-probe.exe
+    to: audio-probe/silly-audio-probe.exe
   - from: ../prototype
     to: prototype
     filter:

@@ -6,6 +6,7 @@
 - `?sleep=5` 设置入睡时间；`?drool=` `?slump=` 覆盖流口水、趴下的时刻（从最后一次输入算起的秒数）；`?work=` 连续打字多久会生气，`?rest=` 罢工后休息多久消气。URL 参数可以超出滑块范围，控制台里 `window.__cat` 是只读调试信息。
 - `?push=0` 关闭推东西；`?pushevery=秒` 设置推杯子的随机间隔基准（默认 600 秒，URL 参数夹在 5–36000 秒）。
 - `?eyes=0` 关闭眼睛跟随，桌面设置键为 `eyesFollow`（默认开）。输入源用 `pointerAt(x, y)` 上报视口 CSS 坐标，原有 `pointerMove(dx, dy)` 继续驱动尾巴和鼠标道具。
+- `?listen=1` 一打开就戴着耳机（不播放戴上动画）；`?listen=cycle` 戴 8 秒、摘 4 秒循环，用来看动画。桌面设置键为 `headphones`（默认关）。
 - `?cat=猫ID` 选择猫，网页控制栏也可以切换。`?style=line` 使用线条画风，省略时显示毛绒画风。
 - 键盘和鼠标朝向猫摆放（猫是使用者，观众看到的键帽字是倒的）。凡是说左右的地方（`__cat.paws.left/right`、代码里的 `'L'/'R'`、`mouseSide`）都按猫自己的左右：`left` = 猫的左爪 = 观众右侧那只白爪。
 - 鼠标用尾巴操作：鼠标一动，尾巴从身后绕过身体一侧（鼠标在哪边就绕哪边）伸到前面，尾尖搭在鼠标上跟着动；点击时尾尖压到按的那颗键上，松开弹一下；鼠标停下 1.5 秒后收回身后接着摆。伸出 0.38 秒、收回 0.52 秒。两只爪子一直留在键盘上照常打字（空格默认用鼠标那一侧的爪，它正按着别的键就换另一只）。只有发飙抓鼠标砸、消气后修鼠标时才用爪子；发飙时尾巴先收回去再抓。`prefers-reduced-motion` 下尾巴直接切换，不做过渡。
@@ -79,7 +80,15 @@
 
 在 macOS worktree 根目录运行 `tools/test-updater.sh`，按终端提示完成本机更新和错误签名测试。脚本使用独立测试标识符、一次性密钥及回环端点。验证关闭自动检查时，保存设置并重新启动旧版，等待超过 10 秒，确认服务日志没有新的清单请求，再手动检查并确认有请求。升级成功后再手动检查应显示已是最新版本，按脚本提示临时移走清单后，手动检查应显示失败。要一并验证输入监控授权是否保留，可将环境变量 `UPDATER_TEST_IDENTITY` 设为本机已有的固定证书签名身份，再运行同一脚本。
 
-无界面测试可运行 `cargo test --manifest-path src-tauri/Cargo.toml`。前端的按住纠偏和帧循环用 `node --test tools/test-held-input.mjs` 测，零依赖，在内存里加载真实的前端脚本并模拟时钟、DOM 和 Tauri IPC。允许绑定回环端口的环境还可运行 `cargo test --manifest-path src-tauri/Cargo.toml check_loopback_manifest -- --ignored`，用真实插件检查本地清单中的新版和当前版本。
+无界面测试可运行 `cargo test --manifest-path src-tauri/Cargo.toml`。耳机的去抖、轮询和头形几何用 `node --test tools/test-headphones.mjs` 测；`python3 tools/headphones_check.py --offline-webkit` 把十只猫、各状态、动画帧和设置页的检查图输出到 `.art-src/headphones-check/`。前端的按住纠偏和帧循环用 `node --test tools/test-held-input.mjs` 测，零依赖，在内存里加载真实的前端脚本并模拟时钟、DOM 和 Tauri IPC。允许绑定回环端口的环境还可运行 `cargo test --manifest-path src-tauri/Cargo.toml check_loopback_manifest -- --ignored`，用真实插件检查本地清单中的新版和当前版本。
+
+### 听歌检测（`media_activity`）
+
+- 命令返回 `{ supported, active, via }`，`active` 是这一刻的瞬时值。前端 `prototype/headphones.js` 只在设置打开时每秒问一次，连续 3 秒为真才戴，连续 8 秒为假才摘；超时或出错都当作没在放。`supported:false` 时设置页隐藏这一项。
+- macOS（`src-tauri/src/media_mac.rs`）：只读 CoreAudio HAL 属性，不建 tap，不弹授权。默认输出设备静音或音量低于 0.01 时为假。14.2 起遍历 `kAudioHardwarePropertyProcessObjectList`，任一进程 `IsRunningOutput` 且不在排除名单里即为真（`via:"process"`）。更早的系统退回设备的 `DeviceIsRunningSomewhere`（`via:"device"`），分不出是哪个应用在出声。Chromium 停播后约 5 秒才关输出流，所以 Chrome 暂停后要 13 秒左右才摘耳机。
+- Windows（`src-tauri/src/media_win.rs`，后台线程见 `media_worker.rs`）：WASAPI 会话电平，手写 COM vtable，只从 `ole32`、`kernel32` 导入，不用 windows-sys，Win7 版同一份代码。默认渲染设备静音或主音量低于 0.01 时为假；否则遍历活动会话，跳过系统提示音会话、自己的 PID、排除名单里的进程、自身静音或音量为 0 的会话，任一会话峰值超过 0.01 即为真（`via:"meter"`）。后台线程 10 秒没人问就停止探测。
+- 排除名单（通话、会议软件）分别写在 `media_mac.rs` 和 `media_win.rs` 顶部的 `EXCLUDED`，macOS 按 bundle id（相等或以「条目.」开头），Windows 按 exe 名（不区分大小写）。
+- 兼容版用 `tools/audio-probe`：零依赖 Rust 小程序，通过 `#[path]` 共用 `media_win.rs`，每秒往 stdout 打一行 `{"active":…}`，stdin 关闭即退出。`electron/main.js` 首次调用 `media_activity` 时启动它，10 秒没人问就结束，10 分钟内意外退出超过 3 次就停止检测。CI 的 electron 任务用 Rust 1.77.2 编译它，并对打进包里的 exe 做 Win7 导入表检查。改 `media_win.rs` 时不要用 Rust 1.77.2 之后才稳定的语法和 API。
 
 ## Electron 兼容版
 

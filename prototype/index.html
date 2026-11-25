@@ -310,6 +310,7 @@
 <script src="updater.js"></script>
 <script src="input-desktop.js"></script>
 <script src="settings.js"></script>
+<script src="headphones.js"></script>
 <script>
 (function () {
   'use strict';
@@ -344,7 +345,7 @@
   const pushEveryParam = parseFloat(params.get('pushevery'));
 
   const kb = SillyKeyboard.build(document.getElementById('keyboard'));
-  let fatigue = null, sleepMod = null, push = null, statusBar = null;
+  let fatigue = null, sleepMod = null, push = null, statusBar = null, headphones = null;
   const cat = SillyCat.createCat({
     keyboard: kb, sleepSeconds: sleep, eyesFollow: eyesParam ?? SillySettings.DEFAULTS.eyesFollow, demo,
     modules: [
@@ -353,6 +354,11 @@
       (ctx) => (push = SillyPush.create(ctx, { enabled: pushParam ?? true, everySeconds: pushEveryParam, demo })),
       (ctx) => (statusBar = SillyStatusBar.create(ctx, { fatigue, enabled: statusBarParam ?? true })),
       SillyCoats.shapeModule,
+      (ctx) => (headphones = SillyHeadphones.create(ctx, {
+        invoke: desktopMode ? window.__TAURI__.core.invoke : null,
+        preview: desktopMode ? null : params.get('listen'),
+        isPushing: push.isActing,
+      })),
     ],
   });
   const headEl = [document.getElementById('cat-head'), document.getElementById('strike-head')];
@@ -375,6 +381,7 @@
       if (!(skipUrl && statusBarParam !== null)) statusBar.setEnabled(s.statusBar);
       if (!(skipUrl && pushParam !== null)) push.setEnabled(s.push);
       if (!(skipUrl && eyesParam !== null)) cat.setEyesFollow(s.eyesFollow);
+      headphones.setEnabled(s.headphones);
       if (!(skipUrl && Number.isFinite(pushEveryParam))) push.setEverySeconds(s.pushEvery);
     };
     const T = window.__TAURI__;

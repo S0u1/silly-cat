@@ -251,6 +251,7 @@
     return {
       overrideState, afterState, afterKeyDown, forcedPawTarget, pose, render,
       block() { return pinned; },
+      isActing(now) { return view(now).acting; },
       setEnabled(v) { enabled = v; },
       setEverySeconds(v) {
         const seconds = interval(v);
