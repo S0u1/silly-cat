@@ -4,7 +4,13 @@
 !define SC_SETUP "$TEMP\MicrosoftEdgeWebview2Setup.exe"
 !define SC_OS_KEY "SOFTWARE\Microsoft\Windows NT\CurrentVersion"
 Var scLogHandle
-Var scMajor
+!define MUI_CUSTOMFUNCTION_GUIINIT scGuiInit
+Var scBuild
+Var scLegacy
+Var scGuiBuild
+Var scGuiPv
+Var scGuiDecision
+Var scUnattended
 Var scPv
 Var scAbort
 
@@ -45,9 +51,9 @@ FunctionEnd
 !macro scReadPv hive subkey
   ReadRegStr $0 ${hive} "${subkey}\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
   !insertmacro scLog "${hive}\${subkey}\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}\pv=$0"
+  StrCpy $1 $0 1
   ${If} $scPv == ""
-  ${AndIf} $0 != ""
-  ${AndIf} $0 != "0.0.0.0"
+  ${AndIf} $1 > 0
     StrCpy $scPv $0
   ${EndIf}
 !macroend
@@ -67,6 +73,78 @@ FunctionEnd
   !insertmacro scLog "Detected WebView2 version=$scPv"
 !macroend
 
+Function scDetectBuild
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${EndIf}
+  ReadRegStr $scBuild HKLM "${SC_OS_KEY}" "CurrentBuildNumber"
+  ${If} $scBuild == ""
+    ReadRegStr $scBuild HKLM "${SC_OS_KEY}" "CurrentBuild"
+  ${EndIf}
+  StrCpy $scLegacy 0
+  ; Reject partial integer conversions such as "7601bad". Strip leading zeroes
+  ; before conversion because NSIS interprets a leading zero as octal.
+  StrCpy $0 $scBuild
+  StrCpy $1 $0 1
+  ${While} $1 == "0"
+    StrCpy $0 $0 "" 1
+    StrCpy $1 $0 1
+  ${EndWhile}
+  IntFmt $1 "%u" $0
+  ${If} $1 != $0
+  ${OrIf} $1 <= 0
+    !insertmacro scLog "Unknown Windows build: $scBuild"
+  ${ElseIf} $1 < 10240
+    StrCpy $scLegacy 1
+  ${EndIf}
+FunctionEnd
+
+; Tauri declares its mode variables and GUID after including the hooks.
+; Its custom language includes emit this function once, after those declarations.
+!macro scDefineGuiInit
+!ifndef SC_GUI_INIT_DEFINED
+!define SC_GUI_INIT_DEFINED
+Function scGuiInit
+  ${If} ${Silent}
+  ${OrIf} $PassiveMode = 1
+  ${OrIf} $UpdateMode = 1
+    Return
+  ${EndIf}
+  Push $0
+  Push $1
+  Call scDetectBuild
+  !insertmacro scDetectRuntime
+  StrCpy $scGuiBuild $scBuild
+  StrCpy $scGuiPv $scPv
+  StrCpy $scGuiDecision "no prompt"
+  ${If} ${RunningX64}
+    SetRegView 64
+  ${Else}
+    SetRegView 32
+  ${EndIf}
+  Pop $1
+  Pop $0
+  ClearErrors
+!ifdef SC_WIN7
+  ${If} $scPv == ""
+    ${If} $scLegacy = 1
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(scMissingLegacyRuntime)" IDNO sc_quit
+    ${Else}
+      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(scMissingRuntime)" IDNO sc_quit
+    ${EndIf}
+!else
+  ${If} $scLegacy = 1
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(scLegacyWindows)" IDNO sc_quit
+!endif
+    StrCpy $scGuiDecision "user continued"
+  ${EndIf}
+  Return
+sc_quit:
+  Quit
+FunctionEnd
+!endif
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   ${If} $UpdateMode = 1
     Goto sc_done
@@ -84,6 +162,14 @@ FunctionEnd
   ${Else}
     !insertmacro scLog "Silent=0"
   ${EndIf}
+  StrCpy $scUnattended 0
+  ${If} ${Silent}
+  ${OrIf} $PassiveMode = 1
+    StrCpy $scUnattended 1
+  ${EndIf}
+  ${If} $scGuiDecision != ""
+    !insertmacro scLog "GUI build=$scGuiBuild pv=$scGuiPv decision=$scGuiDecision"
+  ${EndIf}
   !insertmacro scLog "InstallDir=$INSTDIR"
   !insertmacro scLog "TEMP=$TEMP"
   ${If} ${RunningX64}
@@ -97,34 +183,29 @@ FunctionEnd
   !insertmacro scReadOs ReadRegStr CurrentBuild
   !insertmacro scReadOs ReadRegStr CSDVersion
   !insertmacro scReadOs ReadRegDWORD UBR
-  ReadRegDWORD $scMajor HKLM "${SC_OS_KEY}" "CurrentMajorVersionNumber"
-  !insertmacro scLog "CurrentMajorVersionNumber=$scMajor"
-  SetRegView 32
+  !insertmacro scReadOs ReadRegDWORD CurrentMajorVersionNumber
+  Call scDetectBuild
+  !insertmacro scLog "Effective Windows build=$scBuild"
+  !insertmacro scDetectRuntime
   StrCpy $scAbort ""
-!ifndef SC_WIN7
-  ; A missing DWORD reads as empty and compares numerically as zero.
-  ${If} $scMajor < 10
-    !insertmacro scLog "Legacy Windows: win7 package recommended"
-    ${IfNot} ${Silent}
-    ${AndIf} $PassiveMode != 1
-      MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(scLegacyWindows)" IDNO sc_declined
+!ifdef SC_WIN7
+  ${If} $scPv == ""
+    !insertmacro scLog "WebView2 missing: manual installation required"
+    ${If} $scUnattended = 1
+      StrCpy $scAbort "$(scMissingRuntimeBlocked)"
     ${EndIf}
   ${EndIf}
-!endif
-  !insertmacro scDetectRuntime
-  ${If} $scPv != ""
+!else
+  ${If} $scLegacy = 1
+    !insertmacro scLog "Skipping bootstrapper on legacy Windows"
+    ${If} $scUnattended = 1
+      StrCpy $scAbort "$(scLegacyWindowsBlocked)"
+    ${ElseIf} $scPv == ""
+      DetailPrint "$(scLegacyRuntimeHint)"
+    ${EndIf}
     Goto sc_finish
   ${EndIf}
-!ifdef SC_WIN7
-  !insertmacro scLog "WebView2 missing: manual installation of version 109 required"
-  ${IfNot} ${Silent}
-  ${AndIf} $PassiveMode != 1
-    MessageBox MB_YESNO|MB_ICONEXCLAMATION "$(scMissingLegacyRuntime)" IDNO sc_declined
-  ${EndIf}
-!else
-  ${If} $scMajor < 10
-    DetailPrint "$(scLegacyRuntimeHint)"
-    !insertmacro scLog "Skipping bootstrapper on legacy Windows"
+  ${If} $scPv != ""
     Goto sc_finish
   ${EndIf}
   Delete "${SC_SETUP}"
@@ -152,25 +233,35 @@ FunctionEnd
     DetailPrint "$(webview2InstallError)"
     Goto sc_setup_failed
   ${EndIf}
-  Delete "${SC_SETUP}"
-  !insertmacro scDetectRuntime
-  Goto sc_finish
+  StrCpy $1 5
+  ${Do}
+    Push $1
+    !insertmacro scDetectRuntime
+    Pop $1
+    ${If} $scPv != ""
+      Delete "${SC_SETUP}"
+      Goto sc_finish
+    ${EndIf}
+    Sleep 1000
+    IntOp $1 $1 - 1
+  ${LoopWhile} $1 > 0
+  !insertmacro scLog "$(scRuntimeNotRegistered)"
+  DetailPrint "$(scRuntimeNotRegistered)"
 sc_setup_failed:
   Delete "${SC_SETUP}"
   StrCpy $scAbort "$(webview2AbortError)"
-!endif
-  Goto sc_finish
-
-sc_declined:
-  !insertmacro scLog "User declined to continue"
-  StrCpy $scAbort "$(scInstallCancelled)"
 sc_finish:
+!endif
   !insertmacro SetContext
   Pop $1
   Pop $0
   ClearErrors
   ${If} $scAbort != ""
+    !insertmacro scLog "$scAbort"
     Call scExportLog
+    ${If} $scUnattended = 0
+      MessageBox MB_OK|MB_ICONSTOP "$scAbort"
+    ${EndIf}
     Abort "$scAbort"
   ${EndIf}
 sc_done:

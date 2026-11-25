@@ -12,9 +12,11 @@ mod windows {
     use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
     use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
-    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::Foundation::MAX_PATH;
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
-    use windows_sys::Win32::UI::Shell::{FOLDERID_Desktop, SHGetKnownFolderPath};
+    use windows_sys::Win32::UI::Shell::{
+        SHGetFolderPathW, CSIDL_DESKTOPDIRECTORY, SHGFP_TYPE_CURRENT,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONERROR, MB_OK};
 
     const LOG_DIR: &str = "com.drew.sillycat";
@@ -83,23 +85,27 @@ mod windows {
             .collect()
     }
 
-    /// 系统当前用户的桌面目录。用已知文件夹接口取，跟随 OneDrive 等对桌面的重定向。
+    /// 获取当前用户的桌面目录，跟随 OneDrive 等对桌面的重定向。
+    /// 使用 SHGetFolderPathW 写入调用方缓冲区。SHGetKnownFolderPath 返回的路径需要
+    /// CoTaskMemFree 释放，而 windows-sys 0.61 将 CoTaskMemFree 链接到 Win8 才有的
+    /// combase.dll，导致 Win7 在进入 main 前就无法加载程序。
     fn desktop_dir() -> Option<PathBuf> {
-        let mut raw: *mut u16 = std::ptr::null_mut();
-        // SAFETY: 成功时 raw 指向以 NUL 结尾的宽字符串，读完后必须用 CoTaskMemFree 释放；失败时也可能要释放。
-        unsafe {
-            let result = SHGetKnownFolderPath(&FOLDERID_Desktop, 0, std::ptr::null_mut(), &mut raw);
-            if raw.is_null() {
-                return None;
-            }
-            let mut len = 0;
-            while *raw.add(len) != 0 {
-                len += 1;
-            }
-            let path = OsString::from_wide(std::slice::from_raw_parts(raw, len));
-            CoTaskMemFree(raw.cast());
-            (result >= 0 && len > 0).then(|| PathBuf::from(path))
+        let mut path = [0u16; MAX_PATH as usize];
+        // SAFETY: path 是可写的 MAX_PATH 宽字符缓冲区，空 token 表示当前用户。
+        let result = unsafe {
+            SHGetFolderPathW(
+                std::ptr::null_mut(),
+                CSIDL_DESKTOPDIRECTORY as i32,
+                std::ptr::null_mut(),
+                SHGFP_TYPE_CURRENT as u32,
+                path.as_mut_ptr(),
+            )
+        };
+        if result < 0 {
+            return None;
         }
+        let len = path.iter().position(|&unit| unit == 0)?;
+        (len > 0).then(|| PathBuf::from(OsString::from_wide(&path[..len])))
     }
 
     /// 把完整日志（读不到就用这次的错误信息）存一份到桌面，带 UTF-8 BOM：Win7 的记事本没有 BOM 会把中文显示成乱码。
