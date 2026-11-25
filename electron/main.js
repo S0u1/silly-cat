@@ -626,8 +626,7 @@ function openLink(target) {
 
 const unsupportedAudio = Object.freeze({ supported: false, active: false, via: 'none' });
 let audioChild, audioIdleTimer, audioSample;
-let needsRestart = false;
-let audioRestarts = [];
+let audioFailures = [];
 let restartWarning = false;
 
 function stopAudioProbe() {
@@ -635,8 +634,8 @@ function stopAudioProbe() {
   const child = audioChild;
   audioChild = audioSample = undefined;
   if (child) {
-    child.stdin.end();
-    child.kill();
+    try { child.stdin.end(); } catch (_) {}
+    try { child.kill(); } catch (_) {}
   }
 }
 
@@ -648,29 +647,30 @@ function mediaActivity() {
       ? path.join(process.resourcesPath, 'audio-probe', 'silly-audio-probe.exe')
       : path.join(__dirname, '../tools/audio-probe/target/release/silly-audio-probe.exe');
     if (!fs.existsSync(exe)) return unsupportedAudio;
-    if (needsRestart) {
-      audioRestarts = audioRestarts.filter(t => now - t < 600000);
-      if (audioRestarts.length >= 3) {
-        if (!restartWarning) log('WARN', '音频检测程序在 10 分钟内已重启 3 次，暂停检测');
-        restartWarning = true;
-        return unsupportedAudio;
-      }
-      audioRestarts.push(now);
+    audioFailures = audioFailures.filter(t => now - t < 600000);
+    if (audioFailures.length >= 3) {
+      if (!restartWarning) log('WARN', '音频检测程序在 10 分钟内已异常停止 3 次，暂停检测');
+      restartWarning = true;
+      return { supported: true, active: false, via: 'meter' };
     }
-    needsRestart = restartWarning = false;
+    restartWarning = false;
     const child = require('child_process').spawn(exe, ['--exclude-pid', String(process.pid)], {
       windowsHide: true, stdio: ['pipe', 'pipe', 'ignore']
     });
+    child.stdin.on('error', () => {});
+    child.stdout.on('error', () => {});
     audioChild = child;
     const exited = () => {
       if (audioChild !== child) return;
       clearTimeout(audioIdleTimer);
       audioChild = audioSample = undefined;
-      needsRestart = true;
+      audioFailures.push(performance.now());
     };
     child.once('error', exited);
     child.once('exit', exited);
     const lines = require('readline').createInterface({ input: child.stdout, crlfDelay: Infinity });
+    // readline 会转发 stdout 的错误。
+    lines.on('error', () => {});
     lines.on('line', line => {
       if (audioChild !== child) return;
       try {
