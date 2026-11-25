@@ -2,7 +2,7 @@
 
 在已有依赖的 `electron/` 目录运行 `npm start`。窗口直接加载同仓库的 `prototype/index.html`，使用 Electron 自带的 Chromium。打包时页面目录和托盘 PNG 分别放在 `resources/prototype/` 和 `resources/tray.png`。安装包和 Win7 桌面合成效果需要在 Windows 上验收。
 
-右键猫或使用托盘菜单可隐藏、显示、锁定、重置位置或打开日志目录。头部用于摸猫，解锁后按住身体可拖动。全局键鼠仅在 Windows 正常启动时启用。日志里只有累计事件数和钩子的启动状态。
+右键猫或使用托盘菜单可隐藏、显示、锁定、重置位置或显示日志文件。头部用于摸猫，解锁后按住身体可拖动。全局键鼠仅在 Windows 正常启动时启用。日志里只有累计事件数和钩子的启动状态。
 
 ## 垫片
 
@@ -28,7 +28,7 @@
 
 输出含 `selftest.json`、透明原图 `capture-raw.png`、灰底及棋盘格合成图 `capture-gray.png` / `capture-checker.png` 和边框图 `capture-debug.png`。页面截图只能核对渲染输出的 alpha，Win7 桌面是否透出壁纸须单独目检。
 
-正式启动的日志在 Windows 的 `%APPDATA%\SillyCatElectronDemo\demo.log`。启动失败可把该文件发回来。可分别尝试以下选项，改动后退出已有实例再启动。
+运行日志默认写到桌面 `SillyCatDemo-run.log`（`app.getPath('desktop')`，跟随系统的桌面重定向；UTF-8 带 BOM、CRLF 换行，Win7 自带记事本能正确显示中文）。桌面写不了就退回 `app.getPath('userData')`（Windows 上是 `%APPDATA%\SillyCatElectronDemo\`），文件名不变，日志第一行和错误弹窗里会写明原因。安装器的日志是桌面上的 `SillyCatDemo-install.log`，见下面。`--selftest` 时日志写在临时 userData 里，不碰真实桌面。启动失败可把这两个文件发回来。可分别尝试以下选项，改动后退出已有实例再启动。
 
 - `SILLYCAT_DEBUG=1` 显示洋红和青色窗口边框，并每 10 秒在日志里记录一次钩子累计事件数（只有计数）。窗口不可聚焦，没有 DevTools 快捷键。
 - `--disable-gpu` 或 `SILLYCAT_DISABLE_GPU=1` 关闭硬件加速，可用于比较白底和 GPU 崩溃问题。
@@ -38,7 +38,7 @@
 
 `npm run dist` 在 `dist/` 出 NSIS 安装包 `SillyCatElectronDemo_win7_x64-setup.exe` 和免安装 `SillyCatElectronDemo_win7_x64.zip`（只出 x64：uiohook-napi 没有 ia32 预编译包）。配置在 `electron-builder.yml`：`signAndEditExecutable: false`，所以能在 macOS 上交叉构建、不需要 wine，代价是 exe 图标是默认的 Electron 图标；`prototype/` 和托盘图标用 `extraResources` 原样带进 `resources/`，不复制进仓库；zip 里额外带 `launchers/` 里的三个 `.bat` 和给测试者看的 `README.txt`。构建要联网下载 Electron 和 NSIS。
 
-`build/installer.nsh` 给安装器加了安装阶段日志，写到 `%APPDATA%\SillyCatElectronDemo\install.log`（UTF-16LE，每次安装追加一段）：各阶段断点、系统版本（读 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`）、安装器路径和命令行、安装目录，成功或失败时再转储安装器「详情」列表，失败时弹窗告诉用户日志位置。维护时注意：
+`build/installer.nsh` 给安装器加了安装阶段日志，写到当前用户桌面的 `SillyCatDemo-install.log`（`$DESKTOP`，写之前先 `SetShellVarContext current`；桌面写不了就退回 `%APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log`；UTF-8 带 BOM、CRLF，每次安装追加一段，成功和失败都写）：各阶段断点、系统版本（读 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`）、安装器路径和命令行、安装目录，成功或失败时再转储安装器「详情」列表，失败时弹窗告诉用户日志位置。维护时注意：
 
 - 模板没有 `.onInstSuccess` / `.onInstFailed` / `.onGUIEnd`，这里定义了它们；`.onUserAbort` 已被 MUI2 定义，改用 `MUI_CUSTOMFUNCTION_ABORT`。升级 electron-builder 后要重新核对，重复定义 makensis 会报错。
 - 不要定义 `customCheckAppRunning`、`customUnInstallCheck`、`customWelcomePage`、`customFinishPage` 等宏：模板用 `!ifmacrodef` 判断，定义了就会替换自带逻辑。这里只用纯追加的 `preInit`、`customInit`、`customFiles_x64`、`customInstall`。

@@ -20,17 +20,62 @@ let userData, win, hook, out, watchdog, debugKey;
 let loaded = false, started = false, failed = false, reported = false;
 const results = [], consoleErrors = [];
 
+const RUN_LOG_NAME = 'SillyCatDemo-run.log';
+const BOM = Buffer.from([0xEF, 0xBB, 0xBF]);
+let runLog;
+
+// 运行日志放桌面，方便测试者找到并发回。app.getPath('desktop') 会跟随系统的桌面重定向（OneDrive、自定义路径等），
+// 不要手拼 %USERPROFILE%\Desktop。桌面写不了（无权限、目录不存在）就退回 fallbackDir（userData），note 里写明原因。
+function pickRunLog(desktopDir, fallbackDir) {
+  const attempt = (dir) => {
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, RUN_LOG_NAME);
+    fs.closeSync(fs.openSync(file, 'a'));
+    return file;
+  };
+  let failure;
+  try {
+    if (!desktopDir) throw new Error('取不到桌面路径');
+    return { file: attempt(desktopDir), fellBack: false, note: '' };
+  } catch (e) { failure = e; }
+  const note = '桌面写不了（' + (failure.code || failure.message) + '），日志改存到 ' + fallbackDir;
+  try { return { file: attempt(fallbackDir), fellBack: true, note }; }
+  catch (e) { return { file: null, fellBack: true, note: note + '，这里也写不了（' + (e.code || e.message) + '）' }; }
+}
+
+function currentRunLog() {
+  if (runLog) return runLog;
+  const fallbackDir = userData || os.tmpdir();
+  if (selftest) {
+    runLog = { file: path.join(fallbackDir, RUN_LOG_NAME), fellBack: false, note: '' }; // 自检不碰真实桌面
+  } else {
+    let desktop;
+    try { desktop = app.getPath('desktop'); } catch (_) {}
+    runLog = pickRunLog(desktop, fallbackDir);
+  }
+  return runLog;
+}
+
+// UTF-8 带 BOM（Win7 自带记事本靠 BOM 认 UTF-8，否则中文乱码）、CRLF 换行（旧记事本不认单独的 LF）。
+// 超过 512KB 时保留尾部 256KB（重写时补回 BOM）。
+function appendLogLine(file, text) {
+  let size = 0;
+  try { size = fs.statSync(file).size; } catch (_) {}
+  if (size > 512 * 1024) {
+    const tail = fs.readFileSync(file).slice(-256 * 1024);
+    fs.writeFileSync(file, Buffer.concat([BOM, tail.slice(tail.indexOf(10) + 1)]));
+  } else if (size === 0) {
+    fs.writeFileSync(file, BOM);
+  }
+  fs.appendFileSync(file, text.replace(/\r?\n/g, '\r\n') + '\r\n');
+}
+
 function log(level, message) {
   const line = new Date().toISOString() + ' [' + level + '] ' + message;
   try { console.log(line); } catch (_) {}
   try {
-    const file = path.join(userData, 'demo.log');
-    fs.mkdirSync(userData, { recursive: true });
-    if (fs.existsSync(file) && fs.statSync(file).size > 512 * 1024) {
-      const tail = fs.readFileSync(file).slice(-256 * 1024);
-      fs.writeFileSync(file, tail.slice(tail.indexOf(10) + 1));
-    }
-    fs.appendFileSync(file, line + '\n');
+    const info = currentRunLog();
+    if (info.file) appendLogLine(info.file, line);
   } catch (_) {}
 }
 
@@ -54,8 +99,12 @@ function finishTest() {
 function fatal(title, detail) {
   if (failed) return;
   failed = true;
-  const message = title + '\n' + detail + '\n日志：' +
-    path.join(userData || os.tmpdir(), 'demo.log') + '\n请把 demo.log 发回来。';
+  const info = currentRunLog();
+  const ask = info.fellBack
+    ? '桌面写不了日志，请到这里找 ' + (info.file || '（这次没能写出日志）') + ' 发回来（装过的话再加 SillyCatDemo-install.log）。'
+    : '请把桌面上的 SillyCatDemo-run.log（装过的话再加桌面上的 SillyCatDemo-install.log）发回来。';
+  const message = title + '\n' + detail + '\n日志：' + (info.file || '（没能写出）') +
+    (info.fellBack ? '\n' + info.note : '') + '\n' + ask;
   log('FATAL', message.replace(/\n/g, ' '));
   if (selftest) {
     results.push({ name: title, ok: false, detail: String(detail) });
@@ -75,6 +124,10 @@ function gpuStatus() {
   log('INFO', 'GPU feature status ' + JSON.stringify(app.getGPUFeatureStatus()));
 }
 function runtimeInfo() {
+  const info = currentRunLog();
+  log('INFO', '========== 新的一次启动 ==========');
+  log('INFO', '运行日志 ' + (info.file || '(没能写出)'));
+  if (info.fellBack) log('WARN', info.note);
   const v = process.versions;
   const cpus = os.cpus() || [];
   log('INFO', app.getName() + ' ' + app.getVersion() + ' Electron=' + v.electron +
@@ -162,7 +215,8 @@ async function ready() {
       catch (e) { results.push({ name, ok: false, detail: e.stack || String(e) }); }
     }
     await require('./selftest').run({ win, out, userData, send, setCursor, menuTemplate, defaultPos,
-      getIgnore, isDragging, consoleErrors, applyDebugCSS, debugKey, getOpenedFolder }, check);
+      getIgnore, isDragging, consoleErrors, applyDebugCSS, debugKey, getOpenedFolder,
+      runLog: currentRunLog, pickRunLog, appendLogLine, RUN_LOG_NAME }, check);
     finishTest();
   }
 }
@@ -546,11 +600,15 @@ function resetPosition() {
 }
 
 async function openLogFolder() {
-  openedFolder = userData;
+  const info = currentRunLog();
+  openedFolder = info.file || userData;
   if (selftest) return;
   try {
-    const error = await shell.openPath(userData);
-    if (error) log('WARN', `Cannot open log folder: ${error}`);
+    if (info.file) shell.showItemInFolder(info.file);
+    else {
+      const error = await shell.openPath(userData);
+      if (error) log('WARN', `Cannot open log folder: ${error}`);
+    }
   } catch (error) {
     log('WARN', `Cannot open log folder: ${error.message}`);
   }

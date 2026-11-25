@@ -1,8 +1,10 @@
 ﻿; SillyCat Electron demo: 安装阶段日志。
 ; electron-builder 通过 build/installer.nsh 自动包含本文件（nsis.include 默认值）。
 ;
-; 目的：Win7 测试者装不上或中途关窗口时，也能留下 %APPDATA%\SillyCatElectronDemo\install.log 发回来。
-; 日志是 UTF-16LE（带 BOM），记事本直接能打开；每次安装追加一段。
+; 目的：Win7 测试者装不上或中途关窗口时，也能留下日志发回来。日志直接放在当前用户的桌面：SillyCatDemo-install.log
+; （桌面写不了就退回 %APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log）。每次安装都写，不只在出错时写；每次安装追加一段。
+; 编码：UTF-8 带 BOM（EF BB BF），行尾 CRLF，Win7 自带记事本能正确显示中文。NSIS 3.0.4.1 没有写 UTF-8 的指令，
+; 所以用 WideCharToMultiByte 转码，再用 kernel32::WriteFile 直接往 FileOpen 返回的句柄里写。
 ;
 ; 注意（对照 app-builder-lib 26.x 自带模板确认过）：
 ;  - 模板没有定义 .onInstSuccess / .onInstFailed / .onGUIEnd，这里可以定义；.onUserAbort 是 MUI2 定义的，改用 MUI_CUSTOMFUNCTION_ABORT；升级 electron-builder 后要重新核对，重复定义 makensis 会报错。
@@ -15,23 +17,39 @@
 !ifndef BUILD_UNINSTALLER
 
 !define SC_LOG_DIR "SillyCatElectronDemo"
-!define SC_LOG_NAME "install.log"
+!define SC_LOG_NAME "SillyCatDemo-install.log"
 !define SC_LV_GETITEMCOUNT 0x1004
 !define SC_LV_GETITEMTEXTW 0x1073
 !define SC_LV_BUFCHARS 1024
 !define SC_LV_BUFBYTES 2048
 
 Var scLogPath
+Var scLogFellBack
 
-; 求日志路径并创建目录（只做一次）。优先用环境变量 %APPDATA%，取不到再用 $APPDATA。
+; 求日志路径（只做一次）：优先当前用户桌面 $DESKTOP\${SC_LOG_NAME}。
+; 先 SetShellVarContext current，保证 $DESKTOP 是当前用户的桌面而不是公共桌面（本安装器只装当前用户，这里等于默认值，没有副作用）。
+; 桌面写不了（FileOpen 失败）就退回 %APPDATA%\${SC_LOG_DIR}\${SC_LOG_NAME}，并置 $scLogFellBack = 1。
 Function scInitPath
   StrCmp $scLogPath "" 0 sc_path_done
   Push $0
+  Push $1
+  SetShellVarContext current
+  StrCpy $scLogFellBack "0"
+  StrCpy $scLogPath "$DESKTOP\${SC_LOG_NAME}"
+  ClearErrors
+  FileOpen $1 "$scLogPath" a
+  IfErrors sc_path_fallback
+  FileClose $1
+  Goto sc_path_pop
+  sc_path_fallback:
+  StrCpy $scLogFellBack "1"
   ReadEnvStr $0 APPDATA
   StrCmp $0 "" 0 +2
   StrCpy $0 "$APPDATA"
   CreateDirectory "$0\${SC_LOG_DIR}"
   StrCpy $scLogPath "$0\${SC_LOG_DIR}\${SC_LOG_NAME}"
+  sc_path_pop:
+  Pop $1
   Pop $0
   sc_path_done:
 FunctionEnd
@@ -84,33 +102,54 @@ Function scNow
   Exch $0
 FunctionEnd
 
-; 给日志追加一行：栈顶进（一行文字），不改动其他寄存器，也保持调用前的错误标志
+; 给日志追加一行：栈顶进（一行文字）。UTF-8，文件为空时先写 BOM，行尾 CRLF。
+; 不改动其他寄存器，也保持调用前的错误标志。
 Function scAppendLine
   Exch $0
   Push $1
   Push $2
   Push $3
-  StrCpy $3 0
+  Push $4
+  Push $5
+  Push $6
+  StrCpy $6 0
   IfErrors 0 +2
-  StrCpy $3 1
+  StrCpy $6 1
   ClearErrors
   Call scInitPath
   FileOpen $1 "$scLogPath" a
   IfErrors sc_append_end
   FileSeek $1 0 END $2
   IntCmp $2 0 0 sc_append_bom_done sc_append_bom_done
-  FileWriteWord $1 "65279"
+  System::Alloc 4
+  Pop $3
+  System::Call '*$3(&i1 239, &i1 187, &i1 191)'
+  System::Call 'kernel32::WriteFile(i r1, i r3, i 3, *i .r4, i 0)'
+  System::Free $3
   sc_append_bom_done:
-  FileWriteUTF16LE $1 "$0$\r$\n"
+  StrCpy $0 "$0$\r$\n"
+  System::Call 'kernel32::WideCharToMultiByte(i 65001, i 0, w r0, i -1, i 0, i 0, i 0, i 0) i .r2'
+  IntCmp $2 1 sc_append_close sc_append_close sc_append_convert
+  sc_append_convert:
+  System::Alloc $2
+  Pop $3
+  System::Call 'kernel32::WideCharToMultiByte(i 65001, i 0, w r0, i -1, i r3, i r2, i 0, i 0) i .r5'
+  IntOp $5 $2 - 1
+  System::Call 'kernel32::WriteFile(i r1, i r3, i r5, *i .r4, i 0)'
+  System::Free $3
+  sc_append_close:
   FileClose $1
   sc_append_end:
-  StrCmp $3 1 sc_append_seterr sc_append_clrerr
+  StrCmp $6 1 sc_append_seterr sc_append_clrerr
   sc_append_seterr:
   SetErrors
   Goto sc_append_exit
   sc_append_clrerr:
   ClearErrors
   sc_append_exit:
+  Pop $6
+  Pop $5
+  Pop $4
   Pop $3
   Pop $2
   Pop $1
@@ -221,7 +260,10 @@ FunctionEnd
 ; ---- 纯追加的模板钩子 ----
 
 !macro preInit
+  Call scInitPath
   Push "============================================================"
+  Call scAppendLine
+  Push "log file: $scLogPath (fell back to %APPDATA% because the desktop was not writable: $scLogFellBack)"
   Call scAppendLine
   !insertmacro scStageMacro "installer started (SillyCatElectronDemo ${VERSION})"
   Call scLogSysInfo
@@ -264,7 +306,12 @@ Function .onInstFailed
   Call scLogContext
   Call scDumpDetails
   Call scInitPath
-  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n请把下面两个文件发回给我们：$\r$\n1. $scLogPath$\r$\n2. 同一个文件夹里的 demo.log（装过并启动过才有）" /SD IDOK
+  StrCmp $scLogFellBack "1" sc_fail_fellback
+  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n请把桌面上的 ${SC_LOG_NAME} 发回给我们（如果猫启动过，再加桌面上的 SillyCatDemo-run.log）。" /SD IDOK
+  Goto sc_fail_done
+  sc_fail_fellback:
+  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n桌面写不了日志，请把这个文件发回给我们：$\r$\n$scLogPath$\r$\n（如果猫启动过，再加同一文件夹或桌面上的 SillyCatDemo-run.log）。" /SD IDOK
+  sc_fail_done:
 FunctionEnd
 
 ; .onUserAbort 已被 MUI2 的 MUI_FUNCTION_ABORTWARNING 定义（重复定义会报错）；

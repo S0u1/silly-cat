@@ -401,8 +401,8 @@ async function run(ctx, check) {
       await delay(500);
       assert.deepEqual(readState('window-position'), position(ctx.defaultPos()));
       await click('打开日志文件夹');
-      assert.equal(ctx.getOpenedFolder(), userData);
-      return '显示、隐藏、锁定、重置和打开目录回调通过，退出项仅检查标签';
+      assert.equal(ctx.getOpenedFolder(), ctx.runLog().file);
+      return '显示、隐藏、锁定、重置和打开日志位置回调通过，退出项仅检查标签';
     } finally {
       win.showInactive();
       await lock(false);
@@ -433,8 +433,53 @@ async function run(ctx, check) {
       await contents.removeInsertedCSS(key);
     }
   });
+  await check('运行日志：桌面优先、退回、BOM、CRLF', async () => {
+    const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'sillycat-logtest-'));
+    const bytes = file => fs.readFileSync(file);
+    const hasBom = buf => buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF;
+    // 1. 自检时主日志写在 userData（不碰真实桌面），文件名固定，带 BOM，没有单独的 LF
+    const main = ctx.runLog();
+    assert.equal(path.basename(main.file), ctx.RUN_LOG_NAME);
+    assert.equal(path.basename(main.file), 'SillyCatDemo-run.log');
+    const mainBuf = bytes(main.file);
+    assert(hasBom(mainBuf), '主日志开头没有 UTF-8 BOM');
+    assert(!/[^\r]\n/.test(mainBuf.toString('utf8')), '主日志里有单独的 LF，Win7 记事本会显示成一行');
+    // 2. 桌面可写：直接选桌面，不退回
+    const desktop = path.join(tmp, 'Desktop');
+    const ok = ctx.pickRunLog(desktop, path.join(tmp, 'userData'));
+    assert.deepEqual([ok.file, ok.fellBack], [path.join(desktop, 'SillyCatDemo-run.log'), false]);
+    ctx.appendLogLine(ok.file, '中文测试 line1\nline2');
+    const buf = bytes(ok.file);
+    assert(hasBom(buf), '新建日志没有 BOM');
+    assert.equal(buf.slice(3).toString('utf8'), '中文测试 line1\r\nline2\r\n');
+    ctx.appendLogLine(ok.file, 'again');
+    assert(hasBom(bytes(ok.file)), '追加后 BOM 丢了');
+    assert.equal(bytes(ok.file).toString('utf8').split('\uFEFF').length, 2, 'BOM 只能在开头出现一次');
+    // 3. 桌面写不了（路径穿过一个普通文件）：退回 userData，note 里写明
+    const blocker = path.join(tmp, 'blocker');
+    fs.writeFileSync(blocker, 'x');
+    const fallbackDir = path.join(tmp, 'fallback');
+    const fell = ctx.pickRunLog(path.join(blocker, 'Desktop'), fallbackDir);
+    assert.deepEqual([fell.file, fell.fellBack], [path.join(fallbackDir, 'SillyCatDemo-run.log'), true]);
+    assert(fell.note.includes('桌面写不了') && fell.note.includes(fallbackDir), '退回说明里缺少原因或位置：' + fell.note);
+    // 4. 取不到桌面路径、桌面和退回目录都写不了
+    assert.equal(ctx.pickRunLog(undefined, fallbackDir).fellBack, true);
+    const dead = ctx.pickRunLog(path.join(blocker, 'a'), path.join(blocker, 'b'));
+    assert.equal(dead.file, null);
+    assert(dead.note.includes('这里也写不了'));
+    // 5. 超过 512KB 时截断，重写后仍然带 BOM、从完整一行开始
+    const big = path.join(tmp, 'big.log');
+    ctx.appendLogLine(big, 'head');
+    fs.appendFileSync(big, Buffer.alloc(600 * 1024, 'a').toString() + '\r\n');
+    ctx.appendLogLine(big, 'after rotate');
+    const rotated = bytes(big);
+    assert(hasBom(rotated) && rotated.length < 300 * 1024, '截断后应当带 BOM 且小于 300KB，实际 ' + rotated.length);
+    assert(rotated.toString('utf8').endsWith('after rotate\r\n'));
+    fs.rmSync(tmp, { recursive: true, force: true });
+    return '自检日志带 BOM 且全是 CRLF；桌面可写时选桌面，写不了时退回并写明原因，两处都写不了返回 null；超 512KB 截断后仍有 BOM';
+  });
   await check('诊断日志', async () => {
-    const log = fs.readFileSync(path.join(userData, 'demo.log'), 'utf8');
+    const log = fs.readFileSync(ctx.runLog().file, 'utf8');
     for (const marker of ['Electron=' + process.versions.electron, 'Chromium=' + process.versions.chrome,
       'Node=' + process.versions.node, 'os.release=', 'GPU feature status', 'window created']) {
       assert(log.includes(marker), '缺少诊断行 ' + marker);
