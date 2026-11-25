@@ -122,7 +122,7 @@ mod windows {
                 |path| path.to_string_lossy().into_owned(),
             );
         let body = wide(&format!(
-            "捣蛋猫没能启动，或者刚才崩溃了。\n\n原因：{message}\n\n日志文件：{path}\n\n请把这个日志发到 https://github.com/S0u1/silly-cat/issues 反馈。"
+            "捣蛋猫没能启动，或者刚才崩溃了。\n\n原因：{message}\n\n日志文件：{path}\n\n请把这个日志发到你拿到安装包的地方（比如群里），或者 https://github.com/S0u1/silly-cat/issues。"
         ));
         let title = wide("捣蛋猫");
         // SAFETY: 两个字符串都以 NUL 结尾，在同步调用期间有效。
