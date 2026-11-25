@@ -38,7 +38,7 @@
 
 `npm run dist` 在 `dist/` 出 NSIS 安装包 `SillyCatElectronDemo_x64-setup.exe` 和免安装 `SillyCatElectronDemo_x64.zip`（只出 x64：uiohook-napi 没有 ia32 预编译包）。配置在 `electron-builder.yml`：`signAndEditExecutable: false`，所以能在 macOS 上交叉构建、不需要 wine，代价是 exe 图标是默认的 Electron 图标；`prototype/` 和托盘图标用 `extraResources` 原样带进 `resources/`，不复制进仓库；zip 里额外带 `launchers/` 里的三个 `.bat` 和给测试者看的 `README.txt`。构建要联网下载 Electron 和 NSIS。
 
-`build/installer.nsh` 给安装器加了安装阶段日志，写到当前用户桌面的 `SillyCatDemo-install.log`（`$DESKTOP`，写之前先 `SetShellVarContext current`；桌面写不了就退回 `%APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log`；UTF-8 带 BOM、CRLF，每次安装追加一段，成功和失败都写）：各阶段断点、系统版本（读 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`）、安装器路径和命令行、安装目录，成功或失败时再转储安装器「详情」列表，失败时弹窗告诉用户日志位置。维护时注意：
+`build/installer.nsh` 给安装器加了安装阶段日志，写到当前用户桌面的 `SillyCatDemo-install.log`（`$DESKTOP`，写之前先 `SetShellVarContext current`；桌面写不了就退回 `%APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log`；UTF-8 带 BOM、CRLF，每次安装追加一段，成功和失败都写）：各阶段断点、系统版本（读 `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion`）、安装器文件名、是否静默，成功或失败时再转储安装器「详情」列表（带路径的行整行省略），失败时弹窗告诉用户日志位置。**两个日志都不写文件路径**（路径里有 Windows 用户名）：安装器和运行日志只记目录的特征（盘符、是否含非 ASCII 字符、是否含空格、长度，安装目录还记在不在 `%LOCALAPPDATA%` / Program Files 下）；运行日志的所有文字都过 `scrub()`，已知目录换成 `<userData>`、`<resources>` 这类符号，其余路径只留最后的文件名（保留 `main.js:123:5` 这样的定位信息）。维护时注意：
 
 - 模板没有 `.onInstSuccess` / `.onInstFailed` / `.onGUIEnd`，这里定义了它们；`.onUserAbort` 已被 MUI2 定义，改用 `MUI_CUSTOMFUNCTION_ABORT`。升级 electron-builder 后要重新核对，重复定义 makensis 会报错。
 - 不要定义 `customCheckAppRunning`、`customUnInstallCheck`、`customWelcomePage`、`customFinishPage` 等宏：模板用 `!ifmacrodef` 判断，定义了就会替换自带逻辑。这里只用纯追加的 `preInit`、`customInit`、`customFiles_x64`、`customInstall`。

@@ -478,6 +478,33 @@ async function run(ctx, check) {
     fs.rmSync(tmp, { recursive: true, force: true });
     return '自检日志带 BOM 且全是 CRLF；桌面可写时选桌面，写不了时退回并写明原因，两处都写不了返回 null；超 512KB 截断后仍有 BOM';
   });
+  await check('日志不记录路径', async () => {
+    const os = require('os');
+    // 1. scrub：已知目录换成符号，用户名、盘符路径、file:// 网址都不留
+    const sample = [
+      "EPERM open '" + userData + path.sep + "window-position.json'",
+      'at f (' + process.resourcesPath + path.sep + 'app.asar' + path.sep + 'main.js:123:5)',
+      'Failed to load file:///C:/Users/%E5%BC%A0%E4%B8%89/prototype/cat.js:12:3',
+      'Require stack: - D:\\张三\\soft\\node_modules\\uiohook-napi\\dist\\index.js',
+      'home ' + os.homedir() + path.sep + 'Desktop',
+    ].map(ctx.scrub).join('\n');
+    assert(sample.includes('<userData>') && sample.includes('main.js:123:5') && sample.includes('<file>/cat.js:12:3'), '符号化后丢了定位信息：' + sample);
+    assert(sample.includes('index.js') && (sample.includes('<home>') || sample.includes('<desktop>')), sample);
+    for (const needle of [userData, process.resourcesPath, os.homedir(), 'file://', '张三', 'D:\\', 'C:/']) {
+      assert(!sample.includes(needle), 'scrub 之后仍然有 ' + needle + '：' + sample);
+    }
+    // 2. describePath：只给特征，不带路径本身
+    assert.equal(ctx.describePath('C:\\用户\\a b'), 'drive=C: nonAscii=true spaces=true len=9');
+    assert.equal(ctx.describePath('/tmp/x'), 'drive=- nonAscii=false spaces=false len=6');
+    // 3. 这次运行真实写出的主日志里没有这些路径
+    const text = fs.readFileSync(ctx.runLog().file, 'utf8');
+    const forbidden = [userData, process.resourcesPath, process.execPath, os.homedir(), os.tmpdir(), __dirname, 'file://'];
+    for (const needle of forbidden) assert(!text.includes(needle), '日志里出现了路径 ' + needle);
+    assert(!/[A-Za-z]:[\\/]/.test(text), '日志里出现了盘符路径');
+    assert(!/\/(Users|home)\//.test(text), '日志里出现了用户目录');
+    assert(text.includes('exeDir[drive=') && text.includes('userData[drive='), '缺少路径特征行');
+    return '已知目录、用户名、盘符路径、file:// 都被替换；运行日志' + text.split('\n').length + '行里没有路径，只有盘符/中文/空格/长度特征';
+  });
   await check('诊断日志', async () => {
     const log = fs.readFileSync(ctx.runLog().file, 'utf8');
     for (const marker of ['Electron=' + process.versions.electron, 'Chromium=' + process.versions.chrome,

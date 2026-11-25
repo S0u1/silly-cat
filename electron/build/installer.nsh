@@ -3,6 +3,8 @@
 ;
 ; 目的：测试者装不上或中途关窗口时，也能留下日志发回来。日志直接放在当前用户的桌面：SillyCatDemo-install.log
 ; （桌面写不了就退回 %APPDATA%\SillyCatElectronDemo\SillyCatDemo-install.log）。每次安装都写，不只在出错时写；每次安装追加一段。
+; 隐私：日志里不写任何文件路径（路径里会带 Windows 用户名）：安装器只记文件名，目录只记特征（盘符、是否含非 ASCII 字符、是否含空格、长度、是否在 %LOCALAPPDATA% / Program Files 下），
+; 详情列表里带路径的行整行省略。
 ; 编码：UTF-8 带 BOM（EF BB BF），行尾 CRLF，Win7 自带记事本能正确显示中文。NSIS 3.0.4.1 没有写 UTF-8 的指令，
 ; 所以用 WideCharToMultiByte 转码，再用 kernel32::WriteFile 直接往 FileOpen 返回的句柄里写。
 ;
@@ -198,14 +200,99 @@ Function scLogSysInfo
   Pop $0
 FunctionEnd
 
-; 安装器自身路径、命令行、安装目录
+; 路径只描述特征，不带路径本身：栈顶进（路径），栈顶出（描述）。
+; drive=盘符  nonAscii=含不含非 ASCII 字符（中文目录常见问题）  spaces=含不含空格  len=长度  where=在不在 %LOCALAPPDATA% / Program Files 下
+Function scDescribePath
+  Exch $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  StrCpy $6 $0 2
+  StrCpy $2 $6 "" 1
+  StrCmp $2 ":" sc_dp_drive_ok
+  StrCpy $6 "-"
+  sc_dp_drive_ok:
+  System::Call 'kernel32::WideCharToMultiByte(i 65001, i 0, w r0, i -1, i 0, i 0, i 0, i 0) i .r2'
+  StrLen $3 $0
+  IntOp $4 $3 + 1
+  StrCmp $2 $4 sc_dp_ascii
+  StrCpy $4 "true"
+  Goto sc_dp_nonascii_done
+  sc_dp_ascii:
+  StrCpy $4 "false"
+  sc_dp_nonascii_done:
+  System::Call 'shlwapi::StrChrW(w r0, i 32) i .r2'
+  StrCmp $2 0 sc_dp_nospace
+  StrCpy $2 "true"
+  Goto sc_dp_space_done
+  sc_dp_nospace:
+  StrCpy $2 "false"
+  sc_dp_space_done:
+  StrCpy $5 "other"
+  StrLen $1 "$LOCALAPPDATA"
+  StrCpy $1 $0 $1
+  StrCmp $1 "$LOCALAPPDATA" 0 +2
+  StrCpy $5 "%LOCALAPPDATA%"
+  StrLen $1 "$PROGRAMFILES"
+  StrCpy $1 $0 $1
+  StrCmp $1 "$PROGRAMFILES" 0 +2
+  StrCpy $5 "%ProgramFiles%"
+  StrCpy $0 "drive=$6 nonAscii=$4 spaces=$2 len=$3 where=$5"
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+  Exch $0
+FunctionEnd
+
+; 安装目录的特征
+Function scLogInstDir
+  Push $0
+  Push "$INSTDIR"
+  Call scDescribePath
+  Pop $0
+  Push "instdir: $0"
+  Call scAppendLine
+  Pop $0
+FunctionEnd
+
+; 日志写在哪（桌面，还是退回到 %APPDATA%）
+Function scLogLocation
+  StrCmp $scLogFellBack "1" sc_loc_fellback
+  Push "log location: Desktop"
+  Call scAppendLine
+  Return
+  sc_loc_fellback:
+  Push "log location: %APPDATA%\${SC_LOG_DIR} (the Desktop was not writable)"
+  Call scAppendLine
+FunctionEnd
+
+; 安装器的文件名（不含目录）、所在目录的特征、是否静默、安装目录的特征。不写命令行：它的第一段是安装器自己的完整路径。
 Function scLogContext
-  Push "installer: $EXEPATH"
+  Push $0
+  Push "installer file: $EXEFILE"
   Call scAppendLine
-  Push "cmdline: $CMDLINE"
+  Push "$EXEDIR"
+  Call scDescribePath
+  Pop $0
+  Push "installer dir: $0"
   Call scAppendLine
-  Push "instdir: $INSTDIR"
+  IfSilent sc_ctx_silent sc_ctx_loud
+  sc_ctx_silent:
+  Push "silent: yes"
   Call scAppendLine
+  Goto sc_ctx_done
+  sc_ctx_loud:
+  Push "silent: no"
+  Call scAppendLine
+  sc_ctx_done:
+  Call scLogInstDir
+  Pop $0
 FunctionEnd
 
 ; 转储安装器「详情」列表（SysListView32，控件 ID 1016）的全部文字，Unicode 版 LVM_GETITEMTEXTW
@@ -216,6 +303,8 @@ Function scDumpDetails
   Push $3
   Push $4
   Push $5
+  Push $6
+  Push $7
   FindWindow $0 "#32770" "" $HWNDPARENT
   GetDlgItem $0 $0 1016
   StrCmp $0 0 sc_dump_none
@@ -233,8 +322,20 @@ Function scDumpDetails
   IntCmp $2 $4 sc_dump_done 0 sc_dump_done
   System::Call 'user32::SendMessageW(i r0, i ${SC_LV_GETITEMTEXTW}, i r2, i r1)'
   System::Call '*$3(&t${SC_LV_BUFCHARS} .r5)'
+  StrCpy $7 ":\"
+  System::Call 'shlwapi::StrStrIW(w r5, w r7) i .r6'
+  StrCmp $6 0 0 sc_dump_pathline
+  StrCpy $7 "\\"
+  System::Call 'shlwapi::StrStrIW(w r5, w r7) i .r6'
+  StrCmp $6 0 sc_dump_plain
+  sc_dump_pathline:
+  Push "  | (line omitted: contains a file path)"
+  Call scAppendLine
+  Goto sc_dump_next
+  sc_dump_plain:
   Push "  | $5"
   Call scAppendLine
+  sc_dump_next:
   IntOp $2 $2 + 1
   Goto sc_dump_loop
   sc_dump_done:
@@ -249,6 +350,8 @@ Function scDumpDetails
   Push "details list: (control not found)"
   Call scAppendLine
   sc_dump_end:
+  Pop $7
+  Pop $6
   Pop $5
   Pop $4
   Pop $3
@@ -263,8 +366,7 @@ FunctionEnd
   Call scInitPath
   Push "============================================================"
   Call scAppendLine
-  Push "log file: $scLogPath (fell back to %APPDATA% because the desktop was not writable: $scLogFellBack)"
-  Call scAppendLine
+  Call scLogLocation
   !insertmacro scStageMacro "installer started (SillyCatElectronDemo ${VERSION})"
   Call scLogSysInfo
   Call scLogContext
@@ -272,12 +374,11 @@ FunctionEnd
 
 !macro customInit
   !insertmacro scStageMacro "init done (.onInit finished)"
-  Push "instdir: $INSTDIR"
-  Call scAppendLine
+  Call scLogInstDir
 !macroend
 
 !macro customFiles_x64
-  !insertmacro scStageMacro "app files extracted to $INSTDIR"
+  !insertmacro scStageMacro "app files extracted"
 !macroend
 
 !macro customInstall
@@ -291,11 +392,11 @@ Function .onInstSuccess
   Call scLogContext
   IfFileExists "$INSTDIR\SillyCatElectronDemo.exe" sc_ok_exe sc_ok_noexe
   sc_ok_exe:
-  Push "check: $INSTDIR\SillyCatElectronDemo.exe exists"
+  Push "check: SillyCatElectronDemo.exe exists in the install dir"
   Call scAppendLine
   Goto sc_ok_dump
   sc_ok_noexe:
-  Push "check: WARNING $INSTDIR\SillyCatElectronDemo.exe NOT found"
+  Push "check: WARNING SillyCatElectronDemo.exe NOT found in the install dir"
   Call scAppendLine
   sc_ok_dump:
   Call scDumpDetails
@@ -310,7 +411,7 @@ Function .onInstFailed
   MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n请把桌面上的 ${SC_LOG_NAME} 发回给我们（如果猫启动过，再加桌面上的 SillyCatDemo-run.log）。" /SD IDOK
   Goto sc_fail_done
   sc_fail_fellback:
-  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n桌面写不了日志，请把这个文件发回给我们：$\r$\n$scLogPath$\r$\n（如果猫启动过，再加同一文件夹或桌面上的 SillyCatDemo-run.log）。" /SD IDOK
+  MessageBox MB_OK|MB_ICONEXCLAMATION "安装没有完成。$\r$\n$\r$\n桌面写不了日志，请把这个文件发回给我们：$\r$\n%APPDATA%\${SC_LOG_DIR}\${SC_LOG_NAME}$\r$\n（如果猫启动过，再加同一文件夹或桌面上的 SillyCatDemo-run.log）。" /SD IDOK
   sc_fail_done:
 FunctionEnd
 

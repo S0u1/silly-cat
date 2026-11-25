@@ -70,8 +70,59 @@ function appendLogLine(file, text) {
   fs.appendFileSync(file, text.replace(/\r?\n/g, '\r\n') + '\r\n');
 }
 
+// ---- 日志里不记录任何会带用户名的路径 ----
+// 做法：所有进日志的文字都过 scrub()。已知的目录（用户目录、数据目录、程序目录、桌面……）换成 <home>、<userData> 这类符号；
+// 用户名本身换成 <user>；其余长得像路径的（盘符路径、UNC、file:// 网址）只留最后一个文件名（保留 main.js:123 这类定位信息）。
+// 路径对排查有用的特征（盘符、有没有中文/空格）用 describePath() 单独记，不带路径本身。
+function knownDirs() {
+  const list = [];
+  const add = (token, value) => { if (typeof value === 'string' && value.length > 2) list.push([value, token]); };
+  const tryPath = (name) => { try { return app.getPath(name); } catch (_) { return undefined; } };
+  add('<userData>', userData);
+  add('<app>', (() => { try { return app.getAppPath(); } catch (_) { return undefined; } })());
+  add('<resources>', process.resourcesPath);
+  add('<exe>', process.execPath);
+  add('<exeDir>', path.dirname(process.execPath));
+  add('<app>', __dirname);
+  add('<desktop>', tryPath('desktop'));
+  add('<appData>', tryPath('appData'));
+  add('<temp>', tryPath('temp'));
+  add('<temp>', os.tmpdir());
+  add('<home>', os.homedir());
+  // 同一个目录的正斜杠写法也要换；长的先换，免得被短的（如用户目录）抢先
+  for (const [value, token] of list.slice()) {
+    const forward = value.replace(/\\/g, '/');
+    if (forward !== value) list.push([forward, token]);
+  }
+  return list.sort((a, b) => b[0].length - a[0].length);
+}
+
+function scrub(text) {
+  let out = String(text);
+  for (const [value, token] of knownDirs()) out = out.split(value).join(token);
+  // 用户名只在作为路径的一级目录出现时才换（用户名叫 user 之类时，不能把 userData 这样的词也换掉）
+  try {
+    const name = os.userInfo().username;
+    if (name && name.length >= 2) {
+      out = out.replace(new RegExp('([\\\\/])' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\\\/])', 'gi'), '$1<user>');
+    }
+  } catch (_) {}
+  return out
+    .replace(/file:\/\/\/?(?:[^\s'")\]]*\/)?([^\/\s'")\]]*)/gi, '<file>/$1')
+    .replace(/[A-Za-z]:[\\/](?:[^\\/\s'"|*?)\]]+[\\/])*([^\\/\s'"|*?)\]]*)/g, '<path>\\$1')
+    .replace(/\\\\[^\s\\]+\\(?:[^\\/\s'"|*?)\]]+[\\/])*([^\\/\s'"|*?)\]]*)/g, '<path>\\$1');
+}
+
+// 只描述路径的特征，不带路径本身：盘符、有没有非 ASCII 字符（中文目录常见问题）、有没有空格、长度
+function describePath(p) {
+  const text = String(p || '');
+  const drive = /^[A-Za-z]:/.exec(text);
+  return 'drive=' + (drive ? drive[0] : '-') + ' nonAscii=' + /[^\x00-\x7F]/.test(text) +
+    ' spaces=' + /\s/.test(text) + ' len=' + text.length;
+}
+
 function log(level, message) {
-  const line = new Date().toISOString() + ' [' + level + '] ' + message;
+  const line = new Date().toISOString() + ' [' + level + '] ' + scrub(message);
   try { console.log(line); } catch (_) {}
   try {
     const info = currentRunLog();
@@ -100,11 +151,11 @@ function fatal(title, detail) {
   if (failed) return;
   failed = true;
   const info = currentRunLog();
+  // 对话框里不写带用户名的完整路径：桌面上的日志直接说「桌面上的」；退回 userData 时 Windows 上就是 %APPDATA%\SillyCatElectronDemo\
   const ask = info.fellBack
-    ? '桌面写不了日志，请到这里找 ' + (info.file || '（这次没能写出日志）') + ' 发回来（装过的话再加 SillyCatDemo-install.log）。'
+    ? '桌面写不了日志，请到 %APPDATA%\\SillyCatElectronDemo\\ 里找 SillyCatDemo-run.log 发回来（装过的话再加 SillyCatDemo-install.log）。'
     : '请把桌面上的 SillyCatDemo-run.log（装过的话再加桌面上的 SillyCatDemo-install.log）发回来。';
-  const message = title + '\n' + detail + '\n日志：' + (info.file || '（没能写出）') +
-    (info.fellBack ? '\n' + info.note : '') + '\n' + ask;
+  const message = title + '\n' + scrub(detail) + '\n' + ask;
   log('FATAL', message.replace(/\n/g, ' '));
   if (selftest) {
     results.push({ name: title, ok: false, detail: String(detail) });
@@ -126,7 +177,8 @@ function gpuStatus() {
 function runtimeInfo() {
   const info = currentRunLog();
   log('INFO', '========== 新的一次启动 ==========');
-  log('INFO', '运行日志 ' + (info.file || '(没能写出)'));
+  log('INFO', '运行日志位置 ' + (!info.file ? '(没能写出)' : info.fellBack ? '用户数据目录（桌面写不了）' : '桌面') +
+    (info.file ? ' ' + describePath(path.dirname(info.file)) : ''));
   if (info.fellBack) log('WARN', info.note);
   const v = process.versions;
   const cpus = os.cpus() || [];
@@ -135,8 +187,11 @@ function runtimeInfo() {
   log('INFO', process.platform + '/' + process.arch + ' os.release=' + os.release() +
     ' os.version=' + (os.version ? os.version() : '') + ' os.arch=' + os.arch() +
     ' CPU=' + cpus[0]?.model + ' cores=' + cpus.length + ' memory=' + os.totalmem());
-  log('INFO', 'isPackaged=' + app.isPackaged + ' resourcesPath=' + process.resourcesPath +
-    ' userData=' + userData + ' argv=' + JSON.stringify(process.argv));
+  let desktopDir;
+  try { desktopDir = app.getPath('desktop'); } catch (_) {}
+  log('INFO', 'isPackaged=' + app.isPackaged + ' exeDir[' + describePath(path.dirname(process.execPath)) +
+    '] userData[' + describePath(userData) + '] desktop[' + describePath(desktopDir) + ']' +
+    ' argvFlags=' + JSON.stringify(process.argv.filter(arg => /^--[\w-]/.test(arg))));
   for (const key of ['SILLYCAT_DEBUG', 'SILLYCAT_NO_FORWARD', 'SILLYCAT_DISABLE_GPU']) {
     log('INFO', key + '=' + (process.env[key] ?? '(unset)'));
   }
@@ -216,7 +271,7 @@ async function ready() {
     }
     await require('./selftest').run({ win, out, userData, send, setCursor, menuTemplate, defaultPos,
       getIgnore, isDragging, consoleErrors, applyDebugCSS, debugKey, getOpenedFolder,
-      runLog: currentRunLog, pickRunLog, appendLogLine, RUN_LOG_NAME }, check);
+      runLog: currentRunLog, pickRunLog, appendLogLine, RUN_LOG_NAME, scrub, describePath, knownDirs }, check);
     finishTest();
   }
 }
