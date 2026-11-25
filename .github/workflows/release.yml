@@ -520,6 +520,8 @@ jobs:
 
       - name: 构建兼容版安装包和免安装包
         working-directory: electron
+        # 用 bash：PowerShell 会把 -c.win.xxx 从点处拆成 -c 和 .win.xxx，electron-builder 会把后者当配置文件路径。
+        shell: bash
         run: npm run dist -- -c.win.signAndEditExecutable=true --publish never
 
       - name: 检查兼容版的原生模块导入表
