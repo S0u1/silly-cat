@@ -3565,7 +3565,7 @@ dependencies = [
 
 [[package]]
 name = "silly-cat"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "base64 0.23.1",
  "flate2",
