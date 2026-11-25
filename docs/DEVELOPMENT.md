@@ -61,7 +61,7 @@
 
 ### Windows 启动诊断与单实例
 
-- `src-tauri/src/diag.rs` 把应用、Windows 和 WebView2 的版本、启动阶段及全局键鼠钩子安装失败写到 `%LOCALAPPDATA%\com.drew.sillycat\silly-cat.log`。超过 256 KiB 时，下次追加前轮换到 `silly-cat.log.old`。启动时找不到 WebView2、Tauri 返回运行错误、主线程 panic 或 setup 完成前任意线程 panic，都会尝试弹窗。setup 完成后的后台线程 panic 仅记录日志，并交给原 panic hook。
+- `src-tauri/src/diag.rs` 把应用、Windows 和 WebView2 的版本、启动阶段及全局键鼠钩子安装失败写到 `%LOCALAPPDATA%\com.drew.sillycat\silly-cat.log`。超过 256 KiB 时，下次追加前轮换到 `silly-cat.log.old`。启动时找不到 WebView2、Tauri 返回运行错误、主线程 panic 或 setup 完成前任意线程 panic，都会尝试弹窗，并把完整日志（带 UTF-8 BOM，Win7 记事本才不乱码）另存一份到桌面的 `捣蛋猫-错误日志.txt`（用 `SHGetKnownFolderPath(FOLDERID_Desktop)` 取桌面，跟随 OneDrive 等重定向；写不了就在弹窗里给 `%LOCALAPPDATA%` 下的路径）。正常启动只写 `%LOCALAPPDATA%` 下的日志，不往桌面放东西。setup 完成后的后台线程 panic 仅记录日志，并交给原 panic hook。
 - Windows 把 `tauri-plugin-single-instance` 注册为首个插件。再点桌面图标会调用现有主窗口的 `show()`，保留当前前台应用的焦点。
 
 ## 更新机制
