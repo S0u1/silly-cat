@@ -843,25 +843,35 @@
     }
 
     let last = performance.now();
+    const loggedFrameErrors = new Set();
     function frame(now) {
-      const dt = clamp(now - last, 0, 64);
-      last = now;
-      const rm = reducedMotion();
-      update(now);
-      const P = defaultPose();
-      call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
-      setCatHidden(P.hideCat);
-      renderMouse(dt, P);
-      renderPaws(now, dt, P);
-      renderHead(now, dt, rm, P);
-      renderEyes(now, dt, P);
-      renderEars(now, P);
-      renderTail(now, dt, rm, P);
-      renderBody(now, rm, P);
-      renderZzz(now, P);
-      call('render', now, dt, rm, P);
-      fx.tick(now, rm);
-      requestAnimationFrame(frame);
+      try {
+        const dt = clamp(now - last, 0, 64);
+        last = now;
+        const rm = reducedMotion();
+        update(now);
+        const P = defaultPose();
+        call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
+        setCatHidden(P.hideCat);
+        renderMouse(dt, P);
+        renderPaws(now, dt, P);
+        renderHead(now, dt, rm, P);
+        renderEyes(now, dt, P);
+        renderEars(now, P);
+        renderTail(now, dt, rm, P);
+        renderBody(now, rm, P);
+        renderZzz(now, P);
+        call('render', now, dt, rm, P);
+        fx.tick(now, rm);
+      } catch (error) {
+        const signature = String(error);
+        if (!loggedFrameErrors.has(signature)) {
+          loggedFrameErrors.add(signature);
+          console.error('SillyCat frame failed', error);
+        }
+      } finally {
+        requestAnimationFrame(frame);
+      }
     }
     // ---------- 给扩展模块的上下文 ----------
     function headToScene(x, y) { // 头部局部坐标 -> 画面坐标（按当前头部变换）

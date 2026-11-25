@@ -50,7 +50,7 @@
 - `settings.json` 的 `cat` 字段可填 `settings.js` 的 `CATS` 中的任一 ID，缺失或无效时用 `cow`。`artStyle` 可填 `fur`（毛绒）或 `line`（线条），缺失或无效时用 `fur`。桌面版启动时等 `load_settings` 返回再显示选中的猫和画风，读取失败时显示毛绒奶牛猫。设置页换猫或切画风会立即保存，主窗口收到 `silly:settings` 就切换。「恢复默认」会选回毛绒奶牛猫。
 - 桌面版忽略 `?cat=` 和 `?style=`。支持 URL 的其他字段（含 `?statusbar=`、`?push=`、`?pushevery=`）在启动时按 URL 参数 > 已保存设置 > 默认值取值；之后在设置窗口里改的值覆盖 URL 参数。网页版不读也不写 settings.json，照旧用 URL 参数和控制栏；直接打开设置页可切换头像画风预览。
 - macOS 上猫窗口在其他应用的原生全屏 Space 里也显示（`src-tauri/src/macos_window.rs`）：主窗口在首次 `show()` 前设置 `collectionBehavior = CanJoinAllSpaces | Stationary | CanJoinAllApplications`（`CanJoinAllApplications` 是 macOS 13 起的跨应用浮窗角色，我们最低 13），置顶时窗口层级设为 `NSStatusWindowLevel`（25）。设置失败只记日志，猫照常显示。验证：用 `CGWindowListCopyWindowInfo` 看到猫窗口 layer = 25、onscreen；另一个应用进入原生全屏后肉眼确认猫仍在（macOS 26.6.2）。设置窗口没有做这个处理。
-- 已知问题：在密码框里打字时系统不把按键交给监听，按住的键可能卡在按下状态。
+- 漏掉抬起事件（密码框的安全输入、锁屏、UAC 时系统不把按键交给监听）时，`prototype/input-desktop.js` 每秒用 `held_input_state` 查一次按住满 1 秒的键和鼠标键：系统报已松开就立即松开；查不到（返回非数组、出错或 2 秒超时）时按每一次按下单独计时，连续查不到满 5 秒就只松开这一次按下，其他键鼠活动不会延长计时。`prototype/cat.js` 的帧循环在单帧出错时记一次日志并继续下一帧。
 - 发布：推送 `v*` 标签后，GitHub Actions（`.github/workflows/release.yml`）会构建 macOS 通用版 dmg 和 Windows NSIS 安装包，挂到草稿 Release 上。手动运行只上传 workflow artifacts，默认由 Tauri 在打 DMG 前签名，也可以选 `signing_mode=script` 用脚本签完再打包。CI 验证 DMG 和应用归档的签名，并把签名要求写入运行摘要。
   - 用 `tools/make-signing-cert.sh <仓库外的输出目录>` 生成一次固定证书。按脚本输出把 `.p12.base64` 和密码文件分别写入 Secrets `MACOS_SIGNING_CERT_P12_BASE64`、`MACOS_SIGNING_CERT_PASSWORD`，把证书 SHA-1 写入 Variable `MACOS_SIGNING_CERT_SHA1`。两个 Secrets 都没有时用 ad-hoc 签名。
   - CI 里不把证书交给 tauri：tauri 收到 `APPLE_CERTIFICATE` 时只认通用名带 Apple 前缀（如 `Developer ID Application:`）的证书，自签证书会报 `failed to resolve signing identity`。工作流在签名前自己把证书导入临时钥匙串并设为「代码签名受信任」，只把证书 SHA-1 作为 `APPLE_SIGNING_IDENTITY` 交给 tauri。2026-11-24 在 CI 实测，`signing_mode=tauri` 和 `script` 两种方式产出的 DMG、应用归档签名要求一致：`identifier "com.drew.sillycat" and certificate leaf = H"<SHA-1>"`，均为 universal。
@@ -79,7 +79,7 @@
 
 在 macOS worktree 根目录运行 `tools/test-updater.sh`，按终端提示完成本机更新和错误签名测试。脚本使用独立测试标识符、一次性密钥及回环端点。验证关闭自动检查时，保存设置并重新启动旧版，等待超过 10 秒，确认服务日志没有新的清单请求，再手动检查并确认有请求。升级成功后再手动检查应显示已是最新版本，按脚本提示临时移走清单后，手动检查应显示失败。要一并验证输入监控授权是否保留，可将环境变量 `UPDATER_TEST_IDENTITY` 设为本机已有的固定证书签名身份，再运行同一脚本。
 
-无界面测试可运行 `cargo test --manifest-path src-tauri/Cargo.toml`。允许绑定回环端口的环境还可运行 `cargo test --manifest-path src-tauri/Cargo.toml check_loopback_manifest -- --ignored`，用真实插件检查本地清单中的新版和当前版本。
+无界面测试可运行 `cargo test --manifest-path src-tauri/Cargo.toml`。前端的按住纠偏和帧循环用 `node --test tools/test-held-input.mjs` 测，零依赖，在内存里加载真实的前端脚本并模拟时钟、DOM 和 Tauri IPC。允许绑定回环端口的环境还可运行 `cargo test --manifest-path src-tauri/Cargo.toml check_loopback_manifest -- --ignored`，用真实插件检查本地清单中的新版和当前版本。
 
 ## Windows 7 / 8 / 8.1 版
 
