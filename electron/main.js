@@ -19,6 +19,11 @@ const border = 'html::after{content:"";position:fixed;inset:0;pointer-events:non
 let userData, win, settingsWin, settingsLoading, updater, out, watchdog, debugKey;
 const hook = require('./input-hook');
 let win7Card = false;
+// Win7 没有 DirectComposition。Electron 22 开点穿时会给窗口加上 WS_EX_LAYERED 却不设分层属性，
+// GPU 画的透明窗口和不透明的底色小窗都会因此停止刷新，只有鼠标在猫身上（关掉点穿）时才刷新。
+// 所以 Win7 默认走软件绘制，见 boot() 和 ready()。
+const isWin7 = process.platform === 'win32' && /^6\.1(?:\.|$)/.test(os.release());
+let softwareRendering = false;
 let cardGeometry;
 let loaded = false, failed = false, reported = false;
 const results = [], consoleErrors = [];
@@ -273,7 +278,8 @@ async function ready() {
   if (!fs.existsSync(indexPath)) throw new Error('找不到猫页面 ' + indexPath);
 
   const { bounds, source } = initialBounds();
-  win7Card = process.platform === 'win32' && /^6\.1(?:\.|$)/.test(os.release()) && !systemPreferences.isAeroGlassEnabled();
+  const aero = isWin7 ? systemPreferences.isAeroGlassEnabled() : null;
+  win7Card = isWin7 && !aero;
   updater = require('./updater').createElectronUpdater({
     app, net, session, shell, emit: notice => send('silly:update', notice), settings: loadSettings(), selftest
   });
@@ -284,11 +290,20 @@ async function ready() {
     maximizable: false, minimizable: false, fullscreenable: false, focusable: false, show: false,
     webPreferences: webPreferences()
   });
+  if (isWin7 && softwareRendering) {
+    // 先让 Electron 记下窗口已是分层窗口，之后开关点穿只切换 WS_EX_TRANSPARENT，不再拿掉 WS_EX_LAYERED。
+    // 底色小窗：setOpacity 同时设好透明度 255 的分层属性，普通绘制照常显示。
+    // 透明窗口：Chromium 用 UpdateLayeredWindow 逐像素绘制，不能再设分层属性，
+    // 这里借 setContentProtection(false) 只加 WS_EX_LAYERED（Electron 22 源码里的同一处处理）。
+    if (win7Card) win.setOpacity(1);
+    else win.setContentProtection(false);
+  }
   if (win7Card) { shapeCard(); win.on('resize', shapeCard); }
   win.on('move', schedulePosition);
   win.setAlwaysOnTop(true, 'screen-saver');
   log('INFO', 'window created ' + JSON.stringify({ bounds: win.getBounds(),
-    contentBounds: win.getContentBounds(), visible: win.isVisible(), source }));
+    contentBounds: win.getContentBounds(), visible: win.isVisible(), source,
+    mode: win7Card ? 'win7-card' : 'transparent', aero, softwareRendering }));
   const wc = win.webContents;
   secureWindow(win, indexPath);
   wc.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
@@ -362,7 +377,10 @@ function boot() {
   const gpuSources = [];
   if (process.argv.includes('--disable-gpu')) gpuSources.push('--disable-gpu');
   if (process.env.SILLYCAT_DISABLE_GPU === '1') gpuSources.push('SILLYCAT_DISABLE_GPU');
+  // SILLYCAT_WIN7_GPU=1 可在 Win7 上恢复硬件加速，只用于排查。
+  if (isWin7 && process.env.SILLYCAT_WIN7_GPU !== '1') gpuSources.push('Windows 7');
   if (gpuSources.length) {
+    softwareRendering = true;
     app.disableHardwareAcceleration();
     app.commandLine.appendSwitch('disable-gpu');
     log('INFO', 'GPU 已关闭 ' + gpuSources.join(', '));

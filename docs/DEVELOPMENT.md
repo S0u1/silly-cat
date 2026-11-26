@@ -102,6 +102,8 @@
 
 内部产品名和数据目录仍使用 `SillyCatElectronDemo`，安装器的 appId 也沿用 demo，以便覆盖安装旧 demo 并保留兼容版的设置。兼容版只读取自己的设置和更新清单。全局键鼠钩子、Aero 透明与关闭合成时的回退、开机启动，以及 NSIS 覆盖安装和自动更新后的重启需要在 Windows 真机验收。Win7 真机还未验证。
 
+Win7 没有 DirectComposition。Electron 22 开启点穿（`setIgnoreMouseEvents(true)`）时会给窗口加上 `WS_EX_LAYERED`，关闭时再拿掉，但不设分层属性：GPU 绘制的透明窗口和不透明的底色小窗都会因此停止刷新，只有鼠标在猫身上时才刷新（0.0.9、0.0.10 有两位 Win7 用户反馈白框、打字时猫不动）。所以 Win7 默认关闭硬件加速：开了 Aero 时透明窗口由 Chromium 自己用 `UpdateLayeredWindow` 逐像素绘制，并用 `setContentProtection(false)` 让 Electron 记下窗口已分层、不再拿掉 `WS_EX_LAYERED`；没开 Aero 时底色小窗调用 `setOpacity(1)` 设好分层属性。环境变量 `SILLYCAT_WIN7_GPU=1` 可恢复硬件加速，只用于排查。启动日志的 `window created` 一行记录 `mode`（`win7-card` 或 `transparent`）、`aero` 和 `softwareRendering`。
+
 兼容版沿用上面的穿透存储和 IPC 约定。托盘创建失败时按关闭处理，禁用右键菜单项和设置页开关，保留下次启动可恢复的存盘偏好。自检允许在无托盘时测试开关。已有实例收到 `second-instance` 且穿透生效时，会打开设置窗口。
 
 改发布版本号时，同步更新根目录的 `package.json` 和 `package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`，以及 `electron/package.json` 和 `electron/package-lock.json`。两份 npm 锁文件都要同步根级 `version` 和 `packages[""].version`。
