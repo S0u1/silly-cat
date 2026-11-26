@@ -102,7 +102,8 @@
   function geometry({ x0, x1, y0, y1 }, fit = window.SillySpecies.current.headphones.fit) {
     const w = x1 - x0, k = w / fit.referenceWidth, cx = (x0 + x1) / 2;
     const rx = CUP_W / 2 * k, ry = CUP_H / 2 * k;
-    const left = x0 - CUP_GAP * k - rx, right = x1 + CUP_GAP * k + rx, cy = y0 + fit.cupY * (y1 - y0);
+    const gap = (fit.cupGap ?? CUP_GAP) * k;
+    const left = x0 - gap - rx, right = x1 + gap + rx, cy = y0 + fit.cupY * (y1 - y0);
     return {
       w, k, cx, cy, left, right, top: y0 + fit.bandY * k, rx, ry,
       noteX: fit.noteX * k, noteY: (y0 + y1) / 2 + fit.noteY * k - fit.noteRise,

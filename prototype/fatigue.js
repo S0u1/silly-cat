@@ -587,7 +587,8 @@
       const sp = m === 'tired' ? sighPhase(now) : -1;
       if (sp >= 0) {
         show(E.sigh, 'sigh', true);
-        const A = fatigue.sigh.anchor, base = [[0, 0, 6], [7, -3, 4.5], [3, 6, 4]];
+        const A = (S.eyeMode === 'closed' && fatigue.sigh.closedAnchor) || fatigue.sigh.anchor;
+        const base = [[0, 0, 6], [7, -3, 4.5], [3, 6, 4]];
         base.forEach(([ox, oy, r], i) => {
           const c = E.sighC[i], k = 1 + 1.6 * sp;
           c.setAttribute('cx', f1(A.x + 26 * sp + ox * k));

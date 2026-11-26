@@ -30,12 +30,13 @@
     <clipPath id="clip-back-body"><path/></clipPath>
     <clipPath id="clip-eye-l"><circle cx="345" cy="178" r="29"/></clipPath>
     <clipPath id="clip-eye-r"><circle cx="455" cy="178" r="29"/></clipPath>
-    <clipPath id="clip-puppy-l"><circle cx="363.108" cy="170" r="18"/></clipPath>
-    <clipPath id="clip-puppy-r"><circle cx="436.892" cy="170" r="18"/></clipPath>
-    <radialGradient id="dog-blush">
-      <stop stop-color="#df8777" stop-opacity=".43"/>
-      <stop offset=".6" stop-color="#df8777" stop-opacity=".25"/>
-      <stop offset="1" stop-color="#df8777" stop-opacity="0"/>
+    <clipPath id="clip-puppy-l"><circle cx="363.108" cy="182" r="15"/></clipPath>
+    <clipPath id="clip-puppy-r"><circle cx="436.892" cy="182" r="15"/></clipPath>
+    <!-- 小狗眼：暖棕虹膜，下方偏亮，外圈深 -->
+    <radialGradient id="puppy-iris" cx=".55" cy=".62" r=".62">
+      <stop stop-color="#8b5a33"/>
+      <stop offset=".5" stop-color="#5a3520"/>
+      <stop offset="1" stop-color="#23150c"/>
     </radialGradient>
     <!-- 前面那份尾巴的遮罩：盖掉身体（连同描边）那一块，尾巴从身后出来的部分仍被身体挡住。变换由 cat.js 跟着身体设置 -->
     <mask id="mask-tail-front" maskUnits="userSpaceOnUse" x="-20" y="-50" width="840" height="690">
@@ -81,10 +82,6 @@
     <g id="face-cat-blush" data-species-face="cat">
       <ellipse class="blush" cx="318" cy="232" rx="13" ry="7"/>
       <ellipse class="blush" cx="484" cy="226" rx="13" ry="7"/>
-    </g>
-    <g id="face-dog-blush" data-species-face="dog" style="display:none">
-      <ellipse fill="url(#dog-blush)" cx="340.641" cy="216" rx="17.719" ry="10"/>
-      <ellipse fill="url(#dog-blush)" cx="459.359" cy="216" rx="17.719" ry="10"/>
     </g>
 
     <!-- 左眼（黑斑里） -->
@@ -145,14 +142,19 @@
       <path class="ink-thin coat-mouth-line" fill="none" d="M 400 219 L 400 228 M 383 227 Q 391 237 400 228 Q 410 237 420 224"/>
       <path class="ink-thin coat-nose" d="M 389 206 Q 400 201 411 206 Q 409 216 400 220 Q 391 216 389 206 Z"/>
     </g>
-    <g id="face-dog" data-species-face="dog" style="display:none">
-      <g id="dog-tongue" style="display:none">
-        <path fill="#e99aa0" stroke="#38231a" stroke-width="2.8" d="M 391.019 238 Q 400 231 408.981 238 L 408.997 245 C 409 257 391 257 391.003 245 Z"/>
-        <path d="M 400 242 V 248" fill="none" stroke="#bb636d" stroke-width="1.2" stroke-linecap="round"/>
+    <g id="face-dog" data-species-face="dog" style="display:none" transform="translate(0 12)">
+      <g id="dog-mouth-open">
+        <path d="M369 227 C377 238 389 231 400 229 C411 231 423 238 431 227 C420 255 381 255 369 227 Z" fill="#57372e" stroke="#442e25" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M400 220 V229" stroke="#442e25" stroke-width="2.8"/>
+        <g id="dog-tongue">
+          <path d="M389 241 Q400 237 411 241 L410 248 C408 257 392 257 390 248 Z" fill="#df9493" stroke="#5f3930" stroke-width="1.4"/>
+          <path d="M400 241 v6" stroke="#bb7175" fill="none" stroke-linecap="round"/>
+        </g>
       </g>
-      <path fill="none" stroke="#38231a" stroke-width="2.8" stroke-linecap="round" d="M 400 225 V 233 C 395.009 239 388.009 243 379.061 236 M 400 233 C 404.991 239 411.991 243 420.939 236"/>
-      <path fill="#211916" d="M 392.208 205 L 407.792 205 C 412.634 205 416.627 209.029 416.705 214 C 416.776 218.971 412.839 223 407.919 223 L 392.081 223 C 387.161 223 383.224 218.971 383.295 214 C 383.373 209.029 387.366 205 392.208 205 Z"/>
-      <path d="M 389.221 211 Q 394.138 208 399.022 208.5" fill="none" stroke="#83665a" stroke-width="1.6" stroke-linecap="round"/>
+      <path id="dog-mouth-closed" style="display:none" d="M400 222 V235 M372 230 C374 235 377 236 381 235 C389 234 393 235 400 235 C407 235 411 234 419 235 C423 236 426 235 428 230" fill="none" stroke="#442e25" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M374 205 C374 198 386 197 400 197 S426 198 427 204 C428 211 418 219 411 222 Q400 226 389 222 C382 219 373 212 374 205 Z" fill="#2e2624" stroke="#32251f" stroke-width="1.6"/>
+      <path d="M379 208 Q381 201 389 206 Q391 211 385 212 Q381 212 379 208 Z M421 208 Q419 201 411 206 Q409 211 415 212 Q419 212 421 208 Z" fill="#171313"/>
+      <path d="M384 201.5 Q390 199.5 397 200" fill="none" stroke="#947e70" stroke-width="1.8" stroke-linecap="round"/>
     </g>
 
     <!-- 以下由 sleep.js / fatigue.js 控制显示 -->
@@ -373,7 +375,7 @@
       </g>
     </g>
     <g data-part="brows">
-      <path class="brow" d="M 348.725 140 Q 359.56 138 377.79 151 M 451.275 140 Q 440.44 138 422.21 151"/>
+      <path class="brow" d="M 348.725 152 Q 359.56 150 377.79 163 M 451.275 152 Q 440.44 150 422.21 163"/>
     </g>
   </svg>
 </template>

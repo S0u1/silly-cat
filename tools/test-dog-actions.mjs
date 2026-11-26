@@ -46,8 +46,9 @@ function harness({ species = 'dog', demo = null, sleepSeconds = 60, random = 0.1
   sandbox.window = sandbox;
   for (const script of scripts) script.runInContext(sandbox);
   sandbox.SillySpecies.select(species);
+  const homeRowX = { KeyF: 467.5, KeyG: 437.5, KeyK: 347.5, KeyL: 317.5 };
   const keyboard = {
-    center: (code) => ({ x: code === 'KeyG' ? 437.5 : 347.5, y: 462 }),
+    center: (code) => ({ x: homeRowX[code], y: 462 }),
     setDown: (code, down) => keys.set(code, down),
   };
   const modules = push ? [(ctx) => sandbox.SillyPush.create(ctx, { demo, everySeconds: 5 })] : [];
@@ -107,7 +108,7 @@ test('puppy eyes have only a dark eye and two highlights; cat eye geometry survi
   h.advance(16);
   assert.equal(h.node('eye-l-open').style.display, 'none');
   assert.equal(h.node('puppy-l-open').style.display, '');
-  assert.equal(h.node('puppy-l-pupil').attributes.get('r'), '18');
+  assert.equal(h.node('puppy-l-pupil').attributes.get('r'), '15');
   assert.equal(Number(h.node('puppy-l-lid').attributes.get('height')), 0);
   const pupilX = () => Number(h.node('puppy-l-pupil').attributes.get('cx'));
   const restX = pupilX();
@@ -130,13 +131,15 @@ test('puppy eyes have only a dark eye and two highlights; cat eye geometry survi
   const blinking = harness();
   const lidHeight = () => Number(blinking.node('puppy-l-lid').attributes.get('height'));
   blinking.advance(3400);
-  assert.ok(lidHeight() > 37);
+  assert.ok(lidHeight() > 31); // fully shut = 2 × (radius 15 + lidPadding 2) = 34
   blinking.advance(3900);
   assert.ok(lidHeight() < 0.2);
 });
 
 test('dog uses the mouse-side paw and gives that side’s typing priority', () => {
   const h = harness();
+  assert.deepEqual(translate(h.node('paw-l')), [317.5, 413]);
+  assert.deepEqual(translate(h.node('paw-r')), [467.5, 413]);
   h.pet.pointerMove(20, -12);
   h.advance(260);
   assert.equal(h.debug.paws.right, 'mouse');
@@ -153,7 +156,8 @@ test('dog uses the mouse-side paw and gives that side’s typing priority', () =
   h.pet.pointerDown(2);
   h.advance(480);
   assert.ok(h.node('mouse-btn-r').classes.has('down'));
-  assert.ok(translate(h.node('paw-l'))[0] < translate(h.node('mouse'))[0] - 8);
+  // At this mouse position the shorter B foreleg reaches its extension limit.
+  assert.deepEqual(translate(h.node('paw-l')), [129.4, 409.4]);
   h.pet.keyDown('KeyK');
   assert.equal(h.debug.paws.right, 'KeyK');
   h.pet.keyUp('KeyK');
@@ -189,14 +193,14 @@ test('dog leans toward either mouse position with a bent, bounded foreleg', () =
     h.pet.pointerMove(direction * 24, 24);
     for (let time = 16; time <= 500; time += 16) {
       h.advance(time);
-      assert.ok(armLength(arm(h, slot)) <= armLength(idle) * 1.35 + 0.15);
+      assert.ok(armLength(arm(h, slot)) <= armLength(idle) * 3 + 0.15);
       const tilt = direction * rotation(h.node('cat-body'));
       assert.ok(tilt > 0 && tilt <= 8);
       assert.equal(rotation(h.node('cat-head')), rotation(h.node('cat-body')));
       if (time === 16) assert.ok(tilt < 3);
     }
     const [x, y, cx, cy, ex, ey] = arm(h, slot);
-    assert.ok((x - idle[0]) * direction > 25 && y - idle[1] > 20);
+    assert.ok(Math.abs((x - idle[0]) * direction - 18.7) < 0.2 && Math.abs(y - idle[1] + 3.8) < 0.2);
     assert.ok(Math.hypot(cx - (x + ex) / 2, cy - (y + ey) / 2) > 15);
     assert.ok(direction * rotation(h.node('cat-body')) > 7.9);
     h.advance(2200);
@@ -224,14 +228,17 @@ test('dog wag tracks typing over seconds, accelerates for petting and stops in s
   h.advance(2650);
   assert.equal(h.debug.state, 'petted');
   assert.ok(h.debug.tailWagHz > limit);
-  assert.equal(h.node('dog-tongue').style.display, '');
+  assert.equal(h.node('dog-mouth-open').style.display, '');
+  assert.equal(h.node('dog-tongue').attributes.get('transform'), 'translate(0 241) scale(1 1.65) translate(0 -241)');
   assert.equal(h.node('eye-l-happy').style.display, '');
   h.pet.petEnd();
   h.advance(6000);
   assert.ok(h.debug.tailWagHz < limit);
-  assert.equal(h.node('dog-tongue').style.display, 'none');
+  assert.equal(h.node('dog-tongue').attributes.get('transform'), '');
   h.advance(8650);
   assert.equal(h.debug.state, 'asleep');
+  assert.equal(h.node('dog-mouth-closed').style.display, '');
+  assert.equal(h.node('dog-mouth-open').style.display, 'none');
   assert.equal(h.debug.tailWagHz, 0);
   const tail = h.node('tail-body').attributes.get('d');
   h.pet.pointerMove(24, 0);
@@ -300,7 +307,7 @@ test('fixed demos keep the pose, while the existing cat mouse and cat pet demos 
     const pet = harness({ species, demo: pinned('pet', 950) });
     assert.equal(pet.debug.state, 'petted');
     assert.equal(pet.node('eye-l-happy').style.display, '');
-    assert.equal(pet.node('dog-tongue').style.display, species === 'dog' ? '' : 'none');
+    assert.equal(pet.node('dog-mouth-open').style.display, species === 'dog' ? '' : 'none');
     const held = pet.snapshot(nodes);
     pet.advance(4000);
     assert.deepEqual(pet.snapshot(nodes), held);

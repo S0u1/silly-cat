@@ -18,16 +18,17 @@
     return (1 - 0.15 * smoothstep((250 - y) / 170)) * midScale(y);
   }
 
+  // The source geometry predates the 12-unit downward shift of the head.
   function narrowPoint(x, y) {
-    return { x: Number((400 + (x - 400) * narrowScale(y)).toFixed(3)), y };
+    return { x: Number((400 + (x - 400) * narrowScale(y)).toFixed(3)), y: y + 12 };
   }
 
   function narrowOutline(x, y, curves) {
-    const point = (x, y) => `${narrowPoint(x, y).x} ${Number(y.toFixed(3))}`;
+    const point = (x, y) => `${narrowPoint(x, y).x} ${Number((y + 12).toFixed(3))}`;
     let d = `M ${point(x, y)}`;
     for (const [ax, ay, bx, by, endX, endY] of curves) {
       if (Math.min(y, ay, by, endY) >= 268) {
-        d += ` C ${ax} ${ay} ${bx} ${by} ${endX} ${endY}`;
+        d += ` C ${ax} ${ay + 12} ${bx} ${by + 12} ${endX} ${endY + 12}`;
       } else {
         // A row-dependent warp does not preserve cubic control points.
         for (let i = 1; i <= 24; i++) {
@@ -42,12 +43,14 @@
     return d;
   }
 
-  const mouthCorner = { x: 420.939, y: 236 };
+  const closedMouthCorner = { x: 428, y: 242 };
   const imprintPivot = { x: 309.227, y: 237 };
+  // The dents are authored in the shared, unshifted SVG coordinate system.
   const imprintOffset = { dx: 28.52, dy: -6 };
   // The flush and dents share this translation. Their pivot is in group coordinates.
   const paintedImprintX = imprintPivot.x + imprintOffset.dx;
   imprintOffset.dx += (paintedImprintX - 400) * (midScale(imprintPivot.y + imprintOffset.dy) - 1);
+  imprintOffset.dy += 12;
   const earPivots = { L: narrowPoint(327, 102), R: narrowPoint(473, 102) };
   const headPath = narrowOutline(400, 80, [
     [470, 80, 528, 108, 532, 168], [536, 214, 500, 246, 458, 270],
@@ -57,7 +60,7 @@
   const earOutline = narrowOutline(295, 119, [
     [286, 98, 291, 53, 305, 42], [321, 28, 346, 60, 365, 85],
     [371, 98, 365, 120, 350, 133],
-  ]) + ` L ${narrowPoint(306, 132).x} 132 Z`;
+  ]) + ` L ${narrowPoint(306, 132).x} 144 Z`;
   const innerEarPath = narrowOutline(302, 110, [
     [299, 90, 302, 58, 310, 53],
     [310 + 32 / 3, 53 - 10 / 3, 334, 88 - 80 / 3, 350, 88],
@@ -67,7 +70,7 @@
     [424, 182, 446, 214, 452, 246], [458, 274, 432, 292, 400, 292],
     [368, 292, 342, 274, 348, 246], [354, 214, 376, 182, 400, 182],
   ]) + ' Z';
-  const cheek = { ...rig.head.cheek, imagePivot: { x: 400, y: 227 } };
+  const cheek = { ...rig.head.cheek, imagePivot: { x: 400, y: 239 } };
   const strikeTail = 'M 489 376 C 513 374 540 365 550 346 C 564 325 559 307 542 300 Q 528 292 510 294';
 
   function frontHeadPath(amount) {
@@ -85,9 +88,9 @@
     scene: {
       template: 'parts-dog',
       attributes(dogRig) {
-        const body = 'M 400 244 C 339 244 312 282 294 320 C 274 336 265 361 275 390 ' +
-          'C 288 429 321 432 400 432 C 479 432 512 429 525 390 C 535 361 526 336 506 320 ' +
-          'C 488 282 461 244 400 244';
+        const body = 'M 358 196 Q 390 193 431 194 Q 444 194 451 204 ' +
+          'C 480 253 514 312 514 350 Q 514 390 468 398 Q 400 410 333 398 ' +
+          'Q 286 389 286 350 C 286 316 321 248 347 206 Q 352 197 358 196';
         return [
           ['#cat-body > .coat-base, #strike-body > .coat-base, #clip-body path, #clip-back-body path, #mask-tail-body', { d: body + ' Z' }],
           ['#cat-body > .ink-line, #strike-body > .ink-line', { d: body }],
@@ -97,29 +100,29 @@
           ['#scene .dog-ear-outline', { d: dogRig.ears.outline }],
           ['#scene .coat-inner-ear', { d: dogRig.ears.innerPath }],
           ['.imprint-flush', { cx: imprintPivot.x, cy: imprintPivot.y, rx: '34.913', ry: '22' }],
-          ['#sweat', { d: 'M 469.315 127 Q 463.572 141 464.968 146 C 465.391 156 478.973 156 478.472 146 Q 478.772 141 469.315 127 Z' }],
-          ['#imprint-tuft', { d: 'M 311.898 242 L 303.959 240 M 319.809 249 L 312.808 252' }],
+          ['#sweat', { d: 'M 469.315 139 Q 463.572 153 464.968 158 C 465.391 168 478.973 168 478.472 158 Q 478.772 153 469.315 139 Z' }],
+          ['#imprint-tuft', { d: 'M 311.898 254 L 303.959 252 M 319.809 261 L 312.808 264' }],
         ];
       },
     },
     art: {
       // prepare_art crops the source alpha bounds and adds 6 px on each side.
-      head: { cx: 400, cy: 184.625, width: 234 },
-      backHead: { cx: 400, cy: 184, width: 234 },
+      head: { cx: 400, cy: 196.5, width: 227 },
+      backHead: { cx: 400, cy: 196, width: 234 },
       imprint: imprintOffset,
-      ear: { x: 313.25, y: 37.5, width: 63.25, pivot: earPivots.L },
-      earBack: { x: 313, width: 63.5 },
-      body: { cx: 398.25, y: 241.5, width: 258.5 },
-      backBody: { cx: 399.25, y: 241.5, width: 252.5 },
-      paw: { cx: 0, cy: 2, width: 68 },
-      arm: { width: 57, top: 19, bottom: 7, segments: 8, overlap: 1.45 },
+      ear: { x: 309.5, y: 55.5, width: 72.5, pivot: earPivots.L },
+      earBack: { x: 313, y: 49.5, width: 63.5 },
+      body: { cx: 400, y: 192.5, width: 231 },
+      backBody: { cx: 400, y: 192.5, width: 231 },
+      paw: { cx: 0, cy: 2, width: 71 },
+      arm: { width: 59, top: 34, bottom: 7, segments: 8, overlap: 0.25 },
       tail: { fringe: 4, top: 3, bottom: 2, segments: 24, overlap: 1.35, scale: 0.94 },
     },
     coatShape: { ...cat.coatShape },
     mousePaw: true,
     mouseReach: {
-      inset: 23, rise: 79, degrees: 8, slide: 8, shoulderX: 15, shoulderY: 27,
-      stretch: 1.35, bend: 17, tau: 85,
+      inset: 23, rise: 79, degrees: 8, slide: 8, shoulderX: 2, shoulderY: -15,
+      stretch: 3, bend: 17, tau: 85,
     },
     idleTilt: true,
     tailTyping: true,
@@ -127,20 +130,24 @@
     push: null,
     sleep: {
       ...cat.sleep,
-      droolAnchor: mouthCorner,
-      wipeAnchor: { x: 412.981, y: 240 },
+      droolAnchor: closedMouthCorner,
+      wipeAnchor: { x: 419, y: 247 },
       zzzAnchor: narrowPoint(530, 76),
-      contactShape: { cx: 400, cy: 185, rx: 126 * narrowScale(185), ry: 104 },
+      contactShape: { cx: 400, cy: 197, rx: 126 * narrowScale(185), ry: 104 },
       imprintPivot,
       slump: {
-        nod: { ...cat.sleep.slump.nod, dip: [52, 98], finalDip: 50, land: 138 },
-        melt: { ...cat.sleep.slump.melt, hy: 169 },
+        nod: {
+          ...cat.sleep.slump.nod, dip: [52, 98], finalDip: 50, land: 138,
+          // Lower the long neck with the head, keeping the paws planted.
+          pose: { ...cat.sleep.slump.nod.pose, by: 8, bsy: -0.46 },
+        },
+        melt: { ...cat.sleep.slump.melt, hy: 169, bsx: 0.14, bsy: -0.65, by: 0 },
       },
     },
     fatigue: {
       ...cat.fatigue,
       browMoods: ['angry'],
-      sigh: { ...cat.fatigue.sigh, anchor: mouthCorner },
+      sigh: { ...cat.fatigue.sigh, anchor: { x: 431, y: 239 }, closedAnchor: closedMouthCorner },
       angry: { ...cat.fatigue.angry, symbol: narrowPoint(474, 93), cheek: 15 },
       strike: {
         ...cat.fatigue.strike,
@@ -154,14 +161,14 @@
       },
     },
     headphones: {
-      fit: { ...cat.headphones.fit, referenceWidth: 247, cupY: 0.44, bandY: 3, noteY: -42 },
+      fit: { ...cat.headphones.fit, referenceWidth: 247, cupGap: -10, cupY: 0.44, bandY: 3, noteY: -42 },
       sway: { ...cat.headphones.sway, tailLift: 2 },
     },
     rig: {
       ...rig,
       head: {
         ...rig.head,
-        pivot: { x: 400, y: 281 },
+        pivot: { x: 400, y: 293 },
         restRotation: 0,
         sleepRotation: -4,
         cheek,
@@ -171,15 +178,15 @@
       },
       eyes: {
         style: 'puppy',
-        centers: { L: narrowPoint(356, 170), R: narrowPoint(444, 170) },
-        radius: 18, lidPadding: 2, restLid: 0,
-        pupil: { rest: 18, excited: 18 },
-        shine: { x: -6.6, y: -7, radius: 4.8 },
-        glint: { x: 0.4, y: -12.2, radius: 1.9 },
+        centers: { L: { x: 363.108, y: 182 }, R: { x: 436.892, y: 182 } },
+        radius: 15, lidPadding: 2, restLid: 0,
+        pupil: { rest: 15, excited: 15 },
+        shine: { x: -5, y: -5.4, radius: 4.4 },
+        glint: { x: 5.2, y: 5.6, radius: 1.7 },
         gaze: { max: 5, taper: 0, restY: 0, keyX: 4, keyY: 2 },
         arcs: {
-          closed: { halfWidth: 15, edgeY: 2, controlY: 12 },
-          happy: { halfWidth: 15, edgeY: 5, controlY: -11 },
+          closed: { halfWidth: 13, edgeY: 2, controlY: 10 },
+          happy: { halfWidth: 13, edgeY: 4, controlY: -9 },
         },
       },
       ears: {
@@ -191,8 +198,10 @@
       },
       paws: {
         ...rig.paws,
-        shoulders: { L: { x: 463, y: 291 }, R: { x: 337, y: 291 } },
-        bend: { base: 33, falloff: 0.34, min: 1, max: 33 },
+        restKeys: { L: 'KeyF', R: 'KeyL' },
+        restY: -49,
+        shoulders: { L: { x: 476, y: 342 }, R: { x: 324, y: 342 } },
+        bend: { base: 11, falloff: 0.24, min: 1, max: 11 },
       },
       tail: {
         ...rig.tail,

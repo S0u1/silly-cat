@@ -308,7 +308,7 @@ html[data-cat="tianyuan"] {
   --coat-tail-tip: #e9cb93;
   --coat-blush-opacity: 0.35;
 }
-#scene .puppy-pupil { fill: #3a2417; }
+#scene .puppy-pupil { fill: url(#puppy-iris); stroke: #1e120a; stroke-width: 2.4; }
 #scene .puppy-lid-line { stroke: #3a2417; stroke-width: 2.8; }
 #scene[data-eye-style="puppy"] .eye-arc-l,
 #scene[data-eye-style="puppy"] .eye-arc-r { stroke-width: 3.8; }

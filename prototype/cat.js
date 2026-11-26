@@ -263,7 +263,7 @@
       zzz: [$('z1'), $('z2'), $('z3')],
       eye: { L: eyeEls('l'), R: eyeEls('r') },
       puppyEye: { L: puppyEyeEls('l'), R: puppyEyeEls('r') },
-      tongue: document.getElementById('dog-tongue'),
+      dogMouth: { open: $('dog-mouth-open'), closed: $('dog-mouth-closed'), tongue: $('dog-tongue') },
       headShape: [$('head-fill'), $('head-line')],
       headClip: $('clip-head-path'),
       armG: { l: $('arm-l'), r: $('arm-r') },
@@ -288,7 +288,7 @@
       pupilR: initialRig.eyes.pupil.rest,
       nextBlink: t0 + 3000 + Math.random() * 3000, blinkUntil: 0,
       twitch: { ear: null, start: -1e9 }, nextTwitch: t0 + 5000 + Math.random() * 5000,
-      tailPhase: 0, tailAngle: 0, tailTypingMix: 0, tailWagSpeed: 0, eyeMode: null,
+      tailPhase: 0, tailAngle: 0, tailTypingMix: 0, tailWagSpeed: 0, eyeMode: null, dogMouthMode: null,
       tailReach: 0, tailWant: false, tailSide: mouseSide, tailLag: null, tailPress: 0, tailPressX: 0, tailTapAt: -1e9, tailFrontOn: null,
       tiltIdle: null, tiltStart: -Infinity, tiltSide: 0, tiltAngle: 0,
       headBaseRot: initialRotation, headBaseX: 0, headBaseY: 0,
@@ -314,8 +314,9 @@
       };
     }
     function restPoint(side) {
-      const c = kb.center(REST_KEY[side]);
-      return { x: c.x, y: c.y + currentRig().paws.restY };
+      const { restKeys, restY } = currentRig().paws;
+      const c = kb.center(restKeys?.[side] ?? REST_KEY[side]);
+      return { x: c.x, y: c.y + restY };
     }
     const paws = { L: makePaw('L'), R: makePaw('R') };
     // 发飙和修理沿用鼠标所在侧；平时是否用爪操作鼠标，由物种决定。
@@ -815,9 +816,16 @@
       const puppy = eyes.style === 'puppy';
       const nodes = puppy ? el.puppyEye : el.eye;
       const tongueOut = currentSpecies().petTongue && S.state === STATES.PETTED;
-      if (el.tongue) el.tongue.style.display = tongueOut ? '' : 'none';
       const mode = tongueOut ? 'happy' : S.state === STATES.ASLEEP || P.eyesClosed ? 'closed'
         : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
+      const mouthMode = puppy && (tongueOut ? 'petted' : mode === 'closed' ? 'closed' : 'open');
+      if (mouthMode !== S.dogMouthMode) {
+        S.dogMouthMode = mouthMode;
+        const { open, closed, tongue } = el.dogMouth;
+        open.style.display = mouthMode && mouthMode !== 'closed' ? '' : 'none';
+        closed.style.display = mouthMode === 'closed' ? '' : 'none';
+        tongue.setAttribute('transform', tongueOut ? 'translate(0 241) scale(1 1.65) translate(0 -241)' : '');
+      }
       if (mode !== S.eyeMode) {
         S.eyeMode = mode;
         for (const s of ['L', 'R']) {

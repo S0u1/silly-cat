@@ -102,7 +102,7 @@ def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
     defs = ET.SubElement(root, "defs")
     outline = rig["head"]["backPath"]
     by_id(scene, "clip-head-path").set("d", outline)
-    for clip in ("clip-head", "clip-puppy-l", "clip-puppy-r", "dog-blush"):
+    for clip in ("clip-head", "clip-puppy-l", "clip-puppy-r", "puppy-iris"):
         defs.append(by_id(scene, clip))
     defs.extend(ET.fromstring(f"<defs>{portrait['defs']}</defs>"))
     pivot = rig["head"]["pivot"]
@@ -132,7 +132,8 @@ def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
         pose.append(line)
     for layer in head:
         if layer.get("data-species-face") == portrait["species"]:
-            pose.extend(layer)
+            layer.attrib.pop("style", None)
+            pose.append(layer)
         elif layer.get("id") in ("puppy-l-open", "puppy-r-open"):
             pose.append(layer)
     return root
