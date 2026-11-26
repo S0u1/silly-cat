@@ -399,7 +399,9 @@
 <script src="coats.js"></script>
 <script src="cat.js"></script>
 <script src="sleep.js"></script>
+<script src="dog-mischief.js"></script>
 <script src="fatigue.js"></script>
+<script src="dog-snatch.js"></script>
 <script src="push.js"></script>
 <script src="statusbar.js"></script>
 <script src="input.js"></script>
@@ -448,7 +450,13 @@
     modules: [
       (ctx) => (sleepMod = SillySleep.create(ctx, { droolSeconds: num('drool') ?? NaN, slumpSeconds: num('slump') ?? NaN, slumpStyle, demo })),
       (ctx) => (fatigue = SillyFatigue.create(ctx, { workSeconds: work, restSeconds: rest, demo })),
-      (ctx) => (push = SillyPush.create(ctx, { enabled: pushParam ?? true, everySeconds: pushEveryParam, demo })),
+      (ctx) => (push = SillyPush.create(ctx, {
+        enabled: pushParam ?? true, everySeconds: pushEveryParam, demo,
+        canSnatch() {
+          const { fatigue: value, phase } = fatigue.statusInfo();
+          return !phase && value < 0.6;
+        },
+      })),
       (ctx) => (statusBar = SillyStatusBar.create(ctx, { fatigue, enabled: statusBarParam ?? true })),
       SillyCoats.shapeModule,
       (ctx) => (headphones = SillyHeadphones.create(ctx, {
@@ -460,9 +468,13 @@
     ],
   });
   const headEl = [document.getElementById('cat-head'), document.getElementById('strike-head')];
+  function retrieveTarget(target) {
+    if (!push.canRetrieve()) return null;
+    return target?.closest?.('#cat-body, #arm-l, #arm-r, #paw-l, #paw-r, #tail, #snatch-back');
+  }
   if (desktopMode) {
     // 桌面外壳：全局键鼠代替页面内的键鼠事件（不同时挂两份，避免一次按键算两次）
-    const desktop = SillyDesktopInput.create(cat, { headEl, sceneEl: document.getElementById('scene') });
+    const desktop = SillyDesktopInput.create(cat, { headEl, retrieveTarget, sceneEl: document.getElementById('scene') });
     Object.defineProperty(window, '__desktop', { value: desktop.debug, writable: false, configurable: false });
 
     // 启动时读 settings.json 再显示猫，之后每次保存都会发 silly:settings 事件过来，立即生效。
@@ -490,7 +502,7 @@
     T.event.listen('silly:settings', (ev) => applySettings(ev.payload, false));
   } else {
     SillyInput.createBrowserInput(cat, {
-      headEl,
+      headEl, retrieveTarget,
       ignoreEl: document.getElementById('controls'),
       stageEl: document.getElementById('stage'),
     });

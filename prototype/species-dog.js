@@ -127,7 +127,7 @@
     idleTilt: true,
     tailTyping: true,
     petTongue: true,
-    push: null,
+    push: { snatch: true },
     sleep: {
       ...cat.sleep,
       droolAnchor: closedMouthCorner,
@@ -146,6 +146,8 @@
     },
     fatigue: {
       ...cat.fatigue,
+      mischief: true,
+      status: { annoyed: '想遛弯', rage: '拆家中', strike: '闹脾气', calmAt: 0.6 },
       browMoods: ['angry'],
       sigh: { ...cat.fatigue.sigh, anchor: { x: 431, y: 239 }, closedAnchor: closedMouthCorner },
       angry: { ...cat.fatigue.angry, symbol: narrowPoint(474, 93), cheek: 15 },

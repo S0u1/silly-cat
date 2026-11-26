@@ -289,7 +289,7 @@
         else onUpdate(null);
         return;
       }
-      const h = headEls.find((n) => isNode(e.target) && n.contains(e.target));
+      const h = headEls.find((n) => isNode(e.target) && n.contains(e.target)) || opts.retrieveTarget?.(e.target);
       if (h) {
         headEl = h;
         pet = { id: e.pointerId, target: h };

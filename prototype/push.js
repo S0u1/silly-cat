@@ -1,4 +1,4 @@
-// 推桌上的物件：猫的动作可以收回，已经脱手的物件按自己的时间轴走完。
+// 猫推杯子、狗叼鼠标沿用同一个开关、随机间隔和演示入口。
 (function () {
   'use strict';
 
@@ -16,7 +16,7 @@
   const lerp = (a, b, t) => a + (b - a) * t;
 
   function create(ctx, opts = {}) {
-    const { S, STATES, paws, mousePaw, restPoint, reducedMotion, clamp, f1 } = ctx;
+    const { S, STATES, paws, mouseHome, mousePoint, mousePaw, restPoint, reducedMotion, clamp, f1 } = ctx;
     const demo = opts.demo && DEMOS.includes(opts.demo.name) ? opts.demo : null;
     const pinned = demo && Number.isFinite(demo.at);
     const t0 = performance.now();
@@ -25,11 +25,16 @@
     let everySec = interval(opts.everySeconds);
     const newDeadline = (now) => now + rand(0.5, 1.5) * everySec * 1000;
     const pushSpec = () => window.SillySpecies.current.push;
-    let wasSupported = !!pushSpec();
+    const snatch = () => !!pushSpec()?.snatch;
+    const dog = window.SillyDogSnatch;
+    const canSnatch = opts.canSnatch ?? (() => true);
+    let activeSpec = pushSpec();
+    let dogScene;
     let nextPush = newDeadline(t0);
     let run = null, offset = 0, settling = null, backAt = -Infinity;
-    const cupDir = () => S.mouseSide === 'left' ? -1 : 1;
-    let dir = cupDir();
+    let demoBackAt = -Infinity, returnFrom;
+    const actionDir = () => snatch() ? Math.sign(mouseHome().x - ctx.rig.turnX) : S.mouseSide === 'left' ? -1 : 1;
+    let dir = actionDir();
 
     const $ = (id) => document.getElementById(id);
     // 画在键盘前面的那层之前：杯子在键盘后面（被键盘挡住），手臂和爪子仍盖在杯子上
@@ -79,15 +84,31 @@
       return { dir: d, offset: distance, wobble, opacity, fall: 0, phase: visible ? 'idle' : 'gone', acting: false };
     }
 
-    const demoPeriod = demo && demo.name === 'push-back' ? FADE_MS + 700 : END + FADE_MS + 500;
+    const actionEnd = () => snatch() ? dog.END : END;
     function demoTime(now) {
       if (pinned) return demo.at;
       const elapsed = Math.max(0, now - t0);
+      const returnDuration = snatch() ? dog.RETURN_DURATION : FADE_MS;
+      const demoPeriod = demo.name === 'push-back' ? returnDuration + 700 : actionEnd() + returnDuration + 500;
       return demo.loop ? elapsed % demoPeriod : elapsed;
+    }
+
+    function dogRest(age) {
+      return dog.returning(age, returnFrom ?? dog.END, dir, mouseHome());
     }
 
     function view(now) {
       if (!pushSpec()) return { ...resting(dir, 0, 0, 0, false), phase: 'disabled' };
+      if (snatch()) {
+        if (demo) {
+          const t = demoTime(now);
+          if (demoBackAt !== -Infinity) return dogRest(now - demoBackAt);
+          if (demo.name === 'push-back') return dogRest(t);
+          const returnTime = dog.END + (demo.loop ? 0 : RETURN_MS);
+          return t < returnTime ? dog.sample(t, dir, mouseHome()) : dogRest(t - returnTime);
+        }
+        return run ? dog.sample(now - run.start, run.dir, run.home) : dogRest(now - backAt);
+      }
       if (demo) {
         const t = demoTime(now);
         if (demo.name === 'push-back') return resting(dir, 0, 0, unit(t / FADE_MS), true);
@@ -107,27 +128,43 @@
       nextPush = now + rand(30, 90) * 1000;
     }
 
+    function finishSnatch(now, returnMouse, from) {
+      run = null;
+      returnFrom = from;
+      backAt = returnMouse ? now : now + RETURN_MS;
+      nextPush = Math.max(backAt, newDeadline(now));
+    }
+
     function overrideState(now) {
       if (!pushSpec() || S.pet) return null;
-      if (demo) return (pinned || demoTime(now) < (demo.name === 'push' ? END : FADE_MS)) ? STATES.AWAKE : null;
-      return run && run.acting && now - run.start < END ? STATES.AWAKE : null;
+      if (demo) return (pinned || (demoBackAt === -Infinity && demoTime(now) < (demo.name === 'push' ? actionEnd() : FADE_MS))) ? STATES.AWAKE : null;
+      return run && run.acting && now - run.start < actionEnd() ? STATES.AWAKE : null;
     }
 
     function afterState(now) {
-      const newDir = cupDir();
-      if (!pushSpec()) {
-        if (wasSupported) {
-          run = null; settling = null; offset = 0; backAt = -Infinity;
-          wasSupported = false;
-        }
-        return;
-      }
-      if (!wasSupported) {
-        wasSupported = true;
+      const newDir = actionDir();
+      if (activeSpec !== pushSpec()) {
+        activeSpec = pushSpec();
+        run = null; settling = null; offset = 0; backAt = -Infinity;
+        demoBackAt = -Infinity; returnFrom = undefined;
         nextPush = newDeadline(now);
       }
+      if (!activeSpec) return;
       if (demo) { dir = newDir; return; }
-      if (run) {
+      if (snatch()) {
+        if (!enabled || reducedMotion()) {
+          if (run || backAt !== -Infinity) nextPush = newDeadline(now);
+          run = null; backAt = -Infinity;
+        } else if (run) {
+          const t = now - run.start;
+          if (t >= dog.END) finishSnatch(run.start + dog.END, false);
+          else if (!canSnatch() || S.state !== STATES.AWAKE || (t < dog.GRIP && (S.mouseButtons.size || newDir !== dir ||
+              now - S.lastPointerMove < 150))) {
+            if (t >= dog.GRIP) finishSnatch(now, false);
+            else { run = null; nextPush = newDeadline(now); }
+          }
+        }
+      } else if (run) {
         const t = now - run.start;
         if (S.state !== STATES.AWAKE || !enabled || reducedMotion() || newDir !== dir) {
           if (t < SHOVE) cancel(now);
@@ -148,21 +185,42 @@
       }
       if (now >= backAt && backAt !== -Infinity) {
         offset = 0;
-        if (now >= backAt + FADE_MS) backAt = -Infinity;
+        const returned = snatch() ? !canSnatch() || S.state !== STATES.AWAKE || !view(now).acting
+          : now >= backAt + FADE_MS;
+        if (returned) backAt = -Infinity;
       }
       if (settling && now - settling.at >= SETTLE_MS) settling = null;
       const sinceKey = now - S.lastKeyAt;
       if (enabled && !run && now >= nextPush && backAt === -Infinity && S.state === STATES.AWAKE &&
           !reducedMotion() && sinceKey >= IDLE_MIN && sinceKey <= IDLE_MAX &&
-          now - S.lastInput >= IDLE_MIN && !S.pressed.size && !S.mouseButtons.size) {
+          now - S.lastInput >= IDLE_MIN && !S.pressed.size && !S.mouseButtons.size &&
+          (!snatch() || (canSnatch() && now - S.lastPointerMove >= IDLE_MIN))) {
         run = { start: now, from: offset, dir, acting: true };
+        if (snatch()) run.home = mousePoint();
       }
     }
 
     function afterKeyDown(code, now) {
       if (!run) return;
-      if (now - run.start < SHOVE) cancel(now);
+      if (snatch()) {
+        if (now - run.start < dog.GRIP) { run = null; nextPush = newDeadline(now); }
+      } else if (now - run.start < SHOVE) cancel(now);
       else run.acting = false;
+    }
+
+    function handlePetStart(now) {
+      if (!snatch()) return false;
+      const frame = view(now);
+      if (frame.phase === 'return') return true;
+      if (frame.held || frame.hidden) {
+        const from = frame.held && frame.dir === dir ? frame.t : undefined;
+        if (demo) { demoBackAt = now; returnFrom = from; }
+        else finishSnatch(now, true, from);
+        return true;
+      } else if (run) {
+        run = null;
+        nextPush = newDeadline(now);
+      }
     }
 
     function pawTarget(frame, paw) {
@@ -186,6 +244,10 @@
     }
 
     function forcedPawTarget(paw, now) {
+      if (snatch()) {
+        const frame = view(now);
+        return frame.acting ? dog.pawTarget(ctx, frame, paw) : null;
+      }
       if (paw === mousePaw()) return null;
       const frame = view(now);
       if (!frame.acting || frame.t < REACH || frame.t >= WATCH) return null;
@@ -194,6 +256,11 @@
 
     function pose(now, dt, rm, P) {
       const frame = view(now);
+      if (snatch()) {
+        dogScene ??= dog.create(ctx);
+        dogScene.pose(frame, P, pinned ? demo.at : NaN);
+        return;
+      }
       const { t, dir: d } = frame;
       if (frame.acting) {
         const { lookFront, headTilt, watchDip, proudLift, tail } = pushSpec();
@@ -243,9 +310,10 @@
       S.tailAngle = P.tailAmp * Math.sin(S.tailPhase);
     }
 
-    function render(now, dt, rm) {
+    function render(now, dt, rm, P) {
       const frame = view(now);
-      const shown = (enabled || demo) && frame.opacity > 0;
+      dogScene?.render(snatch() ? frame : null, P);
+      const shown = !snatch() && (enabled || demo) && frame.opacity > 0;
       E.mug.style.display = shown ? '' : 'none';
       if (!shown) return;
       const { dir: d, offset: distance, fall } = frame;
@@ -267,8 +335,23 @@
     }
 
     return {
-      overrideState, afterState, afterKeyDown, forcedPawTarget, pose, render,
-      block() { return pinned && !!pushSpec(); },
+      overrideState, afterState, afterKeyDown, handlePetStart, forcedPawTarget, pose, render,
+      block(kind, arg, now) {
+        if (pinned && pushSpec()) return true;
+        if (!snatch() || kind !== 'pointerDown') return false;
+        const frame = view(now);
+        return frame.held || frame.hidden || frame.phase === 'return';
+      },
+      canRetrieve() {
+        if (!snatch() || pinned) return false;
+        const frame = view(performance.now());
+        return frame.held || frame.hidden;
+      },
+      blocksMouseReach(now) {
+        if (!snatch()) return false;
+        const frame = view(now);
+        return frame.acting || frame.hidden || frame.phase === 'return';
+      },
       isActing(now) { return view(now).acting; },
       setEnabled(v) { enabled = v; },
       setEverySeconds(v) {
@@ -279,7 +362,11 @@
       },
       debugProps: {
         pushPhase: () => view(performance.now()).phase,
-        mugOffset: () => view(performance.now()).offset,
+        mugOffset: () => view(performance.now()).offset ?? 0,
+        mouseSnatched: () => {
+          const frame = snatch() && view(performance.now());
+          return !!(frame.held || frame.hidden);
+        },
         nextPushIn: () => pushSpec() ? Math.round(Math.max(0, nextPush - performance.now()) / 100) / 10 : null,
       },
     };

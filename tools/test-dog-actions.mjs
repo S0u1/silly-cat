@@ -1,77 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { createContext, Script } from 'node:vm';
-
-const read = (file) => readFileSync(new URL(`../prototype/${file}`, import.meta.url), 'utf8');
-const scene = read('index.html');
-const scripts = ['species.js', 'species-cat.js', 'species-dog.js', 'cat.js', 'push.js']
-  .map((file) => new Script(read(file), { filename: file }));
-
-function harness({ species = 'dog', demo = null, sleepSeconds = 60, random = 0.1, push = false, mouseSide = 'right' } = {}) {
-  let now = 0, nextFrame;
-  const nodes = new Map(), keys = new Map();
-  const sceneIds = (source) => Array.from(source.matchAll(/\bid="([\w-]+)"/g), (match) => match[1]);
-  const createElement = () => {
-    const attributes = new Map(), classes = new Set();
-    return {
-      attributes, style: {}, classes,
-      setAttribute(key, value) { attributes.set(key, String(value)); },
-      querySelector: () => createElement(),
-      insertAdjacentHTML(position, html) {
-        for (const id of sceneIds(html)) nodes.set(id, createElement());
-      },
-      appendChild() {}, remove() {},
-      classList: {
-        add: (c) => classes.add(c), remove: (c) => classes.delete(c),
-        toggle(c, on) { if (on) classes.add(c); else classes.delete(c); },
-      },
-    };
-  };
-  for (const id of sceneIds(scene)) nodes.set(id, createElement());
-
-  const math = Object.create(Math);
-  math.random = () => random;
-  const sandbox = createContext({
-    Math: math, navigator: { userAgent: 'test' },
-    performance: { now: () => now },
-    requestAnimationFrame(callback) { nextFrame = callback; },
-    document: {
-      getElementById: (id) => nodes.get(id) ?? null,
-      querySelectorAll: () => [], createElementNS: createElement,
-    },
-    console: { error: (message, error) => assert.fail(`${message}: ${error.stack}`) },
-    SillyArt: { arm() {}, cheek() {} }, SillyCoats: { current: () => ({}) },
-  });
-  sandbox.window = sandbox;
-  for (const script of scripts) script.runInContext(sandbox);
-  sandbox.SillySpecies.select(species);
-  const homeRowX = { KeyF: 467.5, KeyG: 437.5, KeyK: 347.5, KeyL: 317.5 };
-  const keyboard = {
-    center: (code) => ({ x: homeRowX[code], y: 462 }),
-    setDown: (code, down) => keys.set(code, down),
-  };
-  const modules = push ? [(ctx) => sandbox.SillyPush.create(ctx, { demo, everySeconds: 5 })] : [];
-  const pet = sandbox.SillyCat.createCat({ keyboard, eyesFollow: false, sleepSeconds, demo, modules, mouseSide });
-  const update = (time) => { now = time; nextFrame(now); };
-  update(0);
-  return {
-    pet, debug: pet.debug, keys,
-    select: (id) => sandbox.SillySpecies.select(id),
-    rig: () => sandbox.SillySpecies.current.rig,
-    node: (id) => nodes.get(id),
-    advance(time) {
-      while (now + 16 < time) update(now + 16);
-      update(time);
-    },
-    snapshot(ids) {
-      return ids.map((id) => {
-        const node = nodes.get(id);
-        return [Array.from(node.attributes), { ...node.style }, Array.from(node.classes)];
-      });
-    },
-  };
-}
+import { harness, scene } from './test-support/dog-scene.mjs';
 
 const pinned = (name, at) => ({ name, at, loop: false });
 const translate = (node) => node.attributes.get('transform').match(/^translate\(([-.\d]+) ([-.\d]+)\)/).slice(1).map(Number);
@@ -318,18 +247,14 @@ test('fixed demos keep the pose, while the existing cat mouse and cat pet demos 
   assert.equal(once.debug.paws.right, 'mouse');
 });
 
-test('switching to dog disables cup action, including a forced demo, and cats keep it', () => {
+test('switching species changes a forced cup demo to the dog mouse action and back', () => {
   const h = harness({ species: 'cat', push: true, demo: pinned('push', 1200) });
   assert.equal(h.debug.pushPhase, 'tap');
   assert.equal(h.node('mug').style.display, '');
   h.select('dog');
   h.advance(32);
-  assert.equal(h.debug.pushPhase, 'disabled');
-  assert.equal(h.debug.nextPushIn, null);
+  assert.equal(h.debug.pushPhase, 'dip');
   assert.equal(h.node('mug').style.display, 'none');
-  h.pet.keyDown('KeyK');
-  assert.equal(h.keys.get('KeyK'), true);
-  h.pet.keyUp('KeyK');
   h.select('cat');
   h.advance(180);
   assert.equal(h.debug.pushPhase, 'tap');

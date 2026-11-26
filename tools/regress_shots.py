@@ -30,7 +30,12 @@ DOG_DEMOS = {
     'paw-mouse': [0, 530, 1000, 2300, 4260, 4900],
     'tilt': [0, 900, 1850], 'pet': [0, 950],
     **{name: times for name, times in DEMOS.items()
-       if name not in ('tail-mouse', 'push', 'push-back')},
+       if name != 'tail-mouse'},
+    'push': [0, 960, 1250, 1600, 2170, 2900, 3400],
+    'push-back': [0, 420, 800, 1075, 1700],
+    'rage': [0, 550, 1050, 1590, 2200, 2850],
+    'strike': [0, 150, 1600, 14000],
+    'repair': [0, 450, 850, 1250, 1720, 2110, 2200],
 }
 DOG_MOUSE_RIGHT = (1000, 2300)
 DOG_CLOSEUPS = ('idle', 'pet-950', 'paw-mouse-1000', 'tilt-900',

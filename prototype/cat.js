@@ -338,7 +338,7 @@
     const tailWanted = (now) => !currentSpecies().mousePaw && now < S.mouseActiveUntil && mouseAvailable();
 
     function pawMouseTarget(paw, now, P) {
-      if (!currentSpecies().mousePaw || paw !== mousePaw() || !mouseAvailable() || P?.mouseAbs || P?.mouseHidden || P?.hideCat) return null;
+      if (!currentSpecies().mousePaw || paw !== mousePaw() || !mouseAvailable() || P?.mouseAbs || P?.mouseHidden || P?.hideCat || ask('blocksMouseReach', now)) return null;
       const on = motionFrame?.mouse?.active ?? (now < S.mouseActiveUntil || S.mouseButtons.size > 0);
       if (!on) return null;
       const point = mousePoint();
@@ -467,6 +467,7 @@
         if (guard('petStart', null)) return;
         const now = performance.now();
         noteInput(now);
+        if (ask('handlePetStart', now)) return;
         S.pet = { nx: nx || 0, ny: ny || 0 };
         S.state = STATES.PETTED;
       },
@@ -667,10 +668,10 @@
           const rest = restPoint(paw.side), m = mousePoint();
           paw.x = rest.x + ((t.id === 'mouse' ? goal.x : m.x) - rest.x) * amount;
           paw.y = rest.y + ((t.id === 'mouse' ? goal.y : m.y + 4) - rest.y) * amount;
-          paw.press = Number(t.pressing);
+          paw.press = Number(!!t.pressing);
           paw.lift = Math.sin(Math.PI * reach);
-        } else if (pinnedMotionDemo && motionFrame) {
-          paw.x = goal.x; paw.y = goal.y; paw.press = Number(t.pressing); paw.lift = 0;
+        } else if ((pinnedMotionDemo && motionFrame) || P.dogPoseTime != null) {
+          paw.x = goal.x; paw.y = goal.y; paw.press = Number(!!t.pressing); paw.lift = 0;
         } else {
           paw.x = approach(paw.x, goal.x, dt, tau);
           paw.y = approach(paw.y, goal.y, dt, tau);
@@ -734,6 +735,7 @@
     let drawnHead = null;
     function renderHead(now, dt, rm, P, rig) {
       const head = rig.head;
+      const fixed = P.dogPoseTime != null;
       const asleep = S.state === STATES.ASLEEP;
       let rotGoal = head.restRotation, xGoal = 0, yGoal = 0;
       if (asleep) { rotGoal += head.sleepRotation; yGoal += head.sleepY; }
@@ -743,7 +745,7 @@
         xGoal += pet.nx * head.pet.x;
         yGoal += pet.ny * head.pet.y;
       }
-      if (pinnedMotionDemo && motionFrame) {
+      if ((pinnedMotionDemo && motionFrame) || fixed) {
         S.headBaseRot = rotGoal; S.headBaseX = xGoal; S.headBaseY = yGoal;
       } else {
         S.headBaseRot = approach(S.headBaseRot, rotGoal, dt, asleep ? 500 : 70);
@@ -751,13 +753,13 @@
         S.headBaseY = approach(S.headBaseY, yGoal, dt, asleep ? 500 : 70);
       }
 
-      let rot = S.headBaseRot + P.headRot + (motionFrame?.tilt ?? S.tiltAngle);
+      let rot = S.headBaseRot + P.headRot + (fixed ? 0 : motionFrame?.tilt ?? S.tiltAngle);
       const tx = S.headBaseX + P.headX;
       let ty = S.headBaseY + P.headY + P.lift;
       const tn = now - S.nodStart;
-      if (tn < 140) ty += head.nod * Math.sin(Math.PI * tn / 140);
+      if (!fixed && tn < 140) ty += head.nod * Math.sin(Math.PI * tn / 140);
       const ts = now - S.shakeStart;
-      if (ts >= 0 && ts < 420) rot += head.shake * Math.sin(4 * Math.PI * ts / 420);
+      if (!fixed && ts >= 0 && ts < 420) rot += head.shake * Math.sin(4 * Math.PI * ts / 420);
       if (asleep && !rm) ty += head.breathY * P.breath * Math.sin(now * 2 * Math.PI / 3200);
       const hsx = P.headSX, hsy = P.headSY;
       const { x, y } = head.pivot;
@@ -813,12 +815,13 @@
 
     function renderEyes(now, dt, P, eyes) {
       if (drawnEyes !== eyes) applyEyeGeometry(eyes);
+      const fixed = P.dogPoseTime != null;
       const puppy = eyes.style === 'puppy';
       const nodes = puppy ? el.puppyEye : el.eye;
       const tongueOut = currentSpecies().petTongue && S.state === STATES.PETTED;
       const mode = tongueOut ? 'happy' : S.state === STATES.ASLEEP || P.eyesClosed ? 'closed'
         : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
-      const mouthMode = puppy && (tongueOut ? 'petted' : mode === 'closed' ? 'closed' : 'open');
+      const mouthMode = puppy && (P.dogGrip ? 'closed' : tongueOut ? 'petted' : mode === 'closed' ? 'closed' : 'open');
       if (mouthMode !== S.dogMouthMode) {
         S.dogMouthMode = mouthMode;
         const { open, closed, tongue } = el.dogMouth;
@@ -839,16 +842,17 @@
 
       let lidGoal = S.state === STATES.DROWSY ? 0.55 : S.excited ? 0.04 : (eyes.restLid ?? 0.18);
       lidGoal = Math.max(lidGoal, P.lidMin);
-      if (now < S.blinkUntil) lidGoal = 1;
-      S.lid = approach(S.lid, lidGoal, dt, now < S.blinkUntil ? 18 : 60);
+      const blinking = !fixed && now < S.blinkUntil;
+      if (blinking) lidGoal = 1;
+      S.lid = fixed ? lidGoal : approach(S.lid, lidGoal, dt, blinking ? 18 : 60);
 
       const { gaze, pupil, centers, irisTravel, shine, radius, lidPadding } = eyes;
       const eyeX = (centers.L.x + centers.R.x) / 2, eyeY = (centers.L.y + centers.R.y) / 2;
       let lx = 0, ly = gaze.restY, tau = GAZE_TAU, pointerTarget = null;
-      if (P.look) {
+      if (P.look || fixed) {
         // 扩展模块按时间轴控制转眼的过渡。
-        lx = clamp((P.look.x - eyeX) / 300, -1, 1) * gaze.max;
-        ly = gaze.restY + clamp((P.look.y - eyeY) / 520, -1, 1) * gaze.max;
+        lx = clamp(((P.look?.x ?? eyeX) - eyeX) / 300, -1, 1) * gaze.max;
+        ly = gaze.restY + clamp(((P.look?.y ?? eyeY) - eyeY) / 520, -1, 1) * gaze.max;
       } else if (now - S.lastKeyAt < 1200 && S.lookCode) {
         const p = keyPoint(S.lookCode, S.lookSide);
         lx = clamp((p.x - eyeX) / 220, -1, 1) * gaze.keyX; ly = gaze.keyY;
@@ -866,7 +870,7 @@
       }
       // 回正期间延续慢速，直到下一个明确的目标接管。
       if (pointerTarget || tau !== GAZE_SLOW_TAU) S.followingPointer = !!pointerTarget;
-      S.pupilR = approach(S.pupilR, S.excited ? pupil.excited : pupil.rest, dt, 80);
+      S.pupilR = fixed ? pupil.rest : approach(S.pupilR, S.excited ? pupil.excited : pupil.rest, dt, 80);
       // 瞳孔变大时，缩小最大偏移，给虹膜留出边缘。
       const maxGaze = gaze.max - (S.pupilR - pupil.rest) * gaze.taper;
 
@@ -878,8 +882,8 @@
           const scale = maxGaze / Math.max(GAZE_FALLOFF, Math.hypot(dx, dy));
           x = dx * scale; y = dy * scale;
         }
-        offset.x = P.look ? x : approach(offset.x, x, dt, tau);
-        offset.y = P.look ? y : approach(offset.y, y, dt, tau);
+        offset.x = P.look || fixed ? x : approach(offset.x, x, dt, tau);
+        offset.y = P.look || fixed ? y : approach(offset.y, y, dt, tau);
         if (pointerTarget) {
           const scale = maxGaze / Math.max(maxGaze, Math.hypot(offset.x, offset.y));
           offset.x *= scale;
@@ -913,7 +917,7 @@
     function renderEars(now, P, { pivots, twitch }) {
       for (const s of ['L', 'R']) {
         let a = 0;
-        if (S.twitch.ear === s) {
+        if (P.dogPoseTime == null && S.twitch.ear === s) {
           const t = now - S.twitch.start;
           if (t < twitch.duration) a = twitch.degrees * Math.sin(2 * Math.PI * t / twitch.period) * (1 - t / twitch.duration);
         }
@@ -946,12 +950,15 @@
       let { amp = 0, speed = 0, base = 0, tau = wag.tau } = motion || {};
       if (P.tailAmp !== null && !asleep && !joyfulWag) { amp = P.tailAmp; speed = P.tailSpeed; }
       S.tailWagSpeed = speed;
-      if (pinnedMotionDemo && motionFrame) {
+      const fixed = (pinnedMotionDemo && motionFrame) || P.dogPoseTime != null;
+      if (P.dogPoseTime != null) {
+        S.tailPhase = P.dogPoseTime * speed;
+      } else if (pinnedMotionDemo && motionFrame) {
         const time = motionFrame.time;
         S.tailPhase = joyfulWag ? PET_DEMO_START * wag.awake.speed + (time - PET_DEMO_START) * speed : time * speed;
       } else S.tailPhase += dt * speed;
       const angle = base + amp * Math.sin(S.tailPhase);
-      S.tailAngle = (typingWag && asleep) || (pinnedMotionDemo && motionFrame) ? angle : approach(S.tailAngle, angle, dt, tau);
+      S.tailAngle = (typingWag && asleep) || fixed ? angle : approach(S.tailAngle, angle, dt, tau);
 
       // 伸出 / 收回：匀速推进进度，画的时候再缓入缓出
       const want = tailWanted(now) && !P.mouseAbs && !P.mouseHidden && !P.hideCat;
@@ -1039,7 +1046,8 @@
       }
       for (const n of el.tail.tip) n.setAttribute('d', tipD);
       const tf = turnTf(P, rig.turnX);
-      el.tail.back.setAttribute('transform', tf);
+      const offset = P.dogTailOffset;
+      el.tail.back.setAttribute('transform', offset ? tf + `translate(${f1(offset.x)} ${f1(offset.y)})` : tf);
       el.tail.front.setAttribute('transform', tf);
       // 前面那一份只在伸出来时画（不用半透明淡入：叠在键盘上会显出一块灰）。平时尾巴根部被键盘上沿挡住的那一小截，
       // 一开始甩就到了键盘上面，几帧之内整条就抬起来了

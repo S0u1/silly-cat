@@ -12,6 +12,7 @@
     sleepy: { label: '困了', cls: 'sb-sleepy' },
     annoyed: { label: '烦躁', cls: 'sb-annoyed' },
     calming: { label: '消气中', cls: 'sb-calming' },
+    rage: { cls: 'sb-annoyed' },
   };
   // 画面坐标：键盘底边（含下沿）在 y≈590，网页版 viewBox 底边是 620，桌面版是 640
   const BOX = { x: 300, y: 4, w: 200, h: 20 };     // 猫头顶正上方（耳尖上面）
@@ -44,9 +45,16 @@
 
     // ---------- 取值：此刻应该显示哪一条、进度多少 ----------
     const info = () => (fatigue && fatigue.statusInfo ? fatigue.statusInfo() : { fatigue: 0, phase: null, rest: null });
+    const status = () => window.SillySpecies.current.fatigue.status;
+    function labelFor(kind, progress) {
+      const labels = status();
+      if (kind === 'calming' && labels && progress < labels.calmAt) return labels.strike;
+      return labels?.[kind] || KINDS[kind]?.label || '';
+    }
     function current(now) {
       if (!enabled) return { kind: 'none', progress: 0 };
       const I = info();
+      if (I.phase === 'rage' && status()?.rage) return { kind: 'rage', progress: 1 };
       if (I.phase === 'strike') return { kind: 'calming', progress: I.rest };
       if (!I.phase && I.fatigue >= 0.5) return { kind: 'annoyed', progress: I.fatigue };
       // 再核对一次无输入时长：修理结束那一帧 fatigue.js 刚把 lastInput 重置，S.state 还留着重置前算出的 drowsy
@@ -63,6 +71,7 @@
         return clamp((now - S.lastInput - half) / half, 0, 1);
       }
       const I = info();
+      if (kind === 'rage') return 1;
       if (kind === 'annoyed') return I.fatigue;
       if (kind === 'calming') return I.rest === null ? 1 : I.rest;
       return 0;
@@ -96,8 +105,9 @@
         R.drawnKind = R.shown;
         const K = KINDS[R.shown];
         g.setAttribute('class', 'status-bar ' + K.cls);
-        label.textContent = K.label;
       }
+      const caption = labelFor(R.shown, R.shown === want.kind ? want.progress : R.p);
+      if (label.textContent !== caption) label.textContent = caption;
       const p = clamp(R.p, 0, 1);
       if (Math.abs(p - R.drawnP) > 0.001) {
         R.drawnP = p;
@@ -122,7 +132,7 @@
         statusBar: () => {
           const c = current(performance.now());
           return Object.freeze({
-            kind: c.kind, progress: Math.round(c.progress * 1000) / 1000, enabled,
+            kind: c.kind, label: labelFor(c.kind, c.progress), progress: Math.round(c.progress * 1000) / 1000, enabled,
             shown: R.display ? R.shown : 'none', opacity: Math.round(R.op * 1000) / 1000,
           });
         },
