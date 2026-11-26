@@ -38,6 +38,7 @@ test('puppy eyes have only a dark eye and two highlights; cat eye geometry survi
   assert.equal(h.node('eye-l-open').style.display, 'none');
   assert.equal(h.node('puppy-l-open').style.display, '');
   assert.equal(h.node('puppy-l-pupil').attributes.get('r'), '15');
+  assert.equal(h.node('puppy-l-dot').attributes.get('r'), '7.5');
   assert.equal(Number(h.node('puppy-l-lid').attributes.get('height')), 0);
   const pupilX = () => Number(h.node('puppy-l-pupil').attributes.get('cx'));
   const restX = pupilX();
@@ -45,6 +46,8 @@ test('puppy eyes have only a dark eye and two highlights; cat eye geometry survi
   h.pet.pointerMove(-24, 10);
   h.advance(300);
   assert.ok(pupilX() < restX);
+  // 黑瞳孔比虹膜多往目标方向偏一点
+  assert.ok(Number(h.node('puppy-l-dot').attributes.get('cx')) < pupilX());
   h.pet.petStart(0, 0);
   h.advance(320);
   assert.equal(h.node('puppy-l-open').style.display, 'none');

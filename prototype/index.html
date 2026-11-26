@@ -32,11 +32,12 @@
     <clipPath id="clip-eye-r"><circle cx="455" cy="178" r="29"/></clipPath>
     <clipPath id="clip-puppy-l"><circle cx="363.108" cy="182" r="15"/></clipPath>
     <clipPath id="clip-puppy-r"><circle cx="436.892" cy="182" r="15"/></clipPath>
-    <!-- 小狗眼：暖棕虹膜，下方偏亮，外圈深 -->
-    <radialGradient id="puppy-iris" cx=".55" cy=".62" r=".62">
-      <stop stop-color="#8b5a33"/>
-      <stop offset=".5" stop-color="#5a3520"/>
-      <stop offset="1" stop-color="#23150c"/>
+    <!-- 小狗眼：暖棕虹膜，中间浅、外圈深，中间压一颗黑瞳孔 -->
+    <radialGradient id="puppy-iris" cx=".5" cy=".56" r=".6">
+      <stop stop-color="#8a5630"/>
+      <stop offset=".55" stop-color="#5b341b"/>
+      <stop offset=".85" stop-color="#2e1a0d"/>
+      <stop offset="1" stop-color="#170d06"/>
     </radialGradient>
     <!-- 前面那份尾巴的遮罩：盖掉身体（连同描边）那一块，尾巴从身后出来的部分仍被身体挡住。变换由 cat.js 跟着身体设置 -->
     <mask id="mask-tail-front" maskUnits="userSpaceOnUse" x="-20" y="-50" width="840" height="690">
@@ -116,6 +117,7 @@
 
     <g id="puppy-l-open" clip-path="url(#clip-puppy-l)" style="display:none">
       <circle id="puppy-l-pupil" class="puppy-pupil"/>
+      <circle id="puppy-l-dot" class="puppy-dot"/>
       <circle id="puppy-l-shine" fill="#fff8e8"/>
       <circle id="puppy-l-glint" fill="#f5dfc5"/>
       <rect id="puppy-l-lid" class="lid-l"/>
@@ -123,6 +125,7 @@
     </g>
     <g id="puppy-r-open" clip-path="url(#clip-puppy-r)" style="display:none">
       <circle id="puppy-r-pupil" class="puppy-pupil"/>
+      <circle id="puppy-r-dot" class="puppy-dot"/>
       <circle id="puppy-r-shine" fill="#fff8e8"/>
       <circle id="puppy-r-glint" fill="#f5dfc5"/>
       <rect id="puppy-r-lid" class="lid-r"/>

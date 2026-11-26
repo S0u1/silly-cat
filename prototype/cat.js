@@ -245,7 +245,7 @@
     const puppyEyeEls = (s) => ({
       open: $('puppy-' + s + '-open'), clip: $('clip-puppy-' + s).querySelector('circle'),
       closed: $('eye-' + s + '-closed'), happy: $('eye-' + s + '-happy'),
-      pupil: $('puppy-' + s + '-pupil'), shine: $('puppy-' + s + '-shine'),
+      pupil: $('puppy-' + s + '-pupil'), dot: $('puppy-' + s + '-dot'), shine: $('puppy-' + s + '-shine'),
       glint: $('puppy-' + s + '-glint'), lid: $('puppy-' + s + '-lid'),
       lidLine: $('puppy-' + s + '-lidline'),
     });
@@ -790,7 +790,10 @@
         for (const n of puppy ? [e.clip, e.pupil] : [e.sclera, e.ring, e.clip]) {
           n.setAttribute('cx', x); n.setAttribute('cy', y); n.setAttribute('r', radius);
         }
-        if (puppy) e.glint.setAttribute('r', eyes.glint.radius);
+        if (puppy) {
+          e.glint.setAttribute('r', eyes.glint.radius);
+          e.dot?.setAttribute('r', eyes.dot?.radius ?? 0);
+        }
         else e.iris.setAttribute('r', eyes.irisRadius);
         e.shine.setAttribute('r', eyes.shine.radius);
         const edge = radius + lidPadding + (puppy ? eyes.gaze.max : 0);
@@ -895,6 +898,9 @@
           e.clip.setAttribute('cy', f1(py));
           e.glint.setAttribute('cx', f1(px + eyes.glint.x));
           e.glint.setAttribute('cy', f1(py + eyes.glint.y));
+          const lead = eyes.dot?.lead ?? 0;
+          e.dot?.setAttribute('cx', f1(px + offset.x * lead));
+          e.dot?.setAttribute('cy', f1(py + offset.y * lead));
           e.lid.setAttribute('y', f1(py - radius - lidPadding));
         } else {
           e.iris.setAttribute('cx', f1(cx + offset.x * irisTravel));

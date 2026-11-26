@@ -81,6 +81,8 @@ def dog_eyes(scene, eyes):
         eye.attrib.pop("style", None)
         for circle in (by_id(eye, f"puppy-{side}-pupil"), by_id(scene, f"clip-puppy-{side}")[0]):
             circle.attrib.update(cx=str(cx), cy=str(cy), r=str(radius))
+        if "dot" in eyes:
+            by_id(eye, f"puppy-{side}-dot").attrib.update(cx=str(cx), cy=str(cy), r=str(eyes["dot"]["radius"]))
         for name in ("shine", "glint"):
             detail = eyes[name]
             by_id(eye, f"puppy-{side}-{name}").attrib.update(

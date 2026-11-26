@@ -185,6 +185,7 @@
         pupil: { rest: 15, excited: 15 },
         shine: { x: -5, y: -5.4, radius: 4.4 },
         glint: { x: 5.2, y: 5.6, radius: 1.7 },
+        dot: { radius: 7.5, lead: 0.3 },
         gaze: { max: 5, taper: 0, restY: 0, keyX: 4, keyY: 2 },
         arcs: {
           closed: { halfWidth: 13, edgeY: 2, controlY: 10 },
