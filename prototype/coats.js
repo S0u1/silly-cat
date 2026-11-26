@@ -32,6 +32,7 @@
       headPath: opts.headPath,
       imprint: { ...defaults.imprint, ...opts.imprint },
       ear: { ...defaults.ear, ...opts.ear },
+      earBack: defaults.earBack,
       body: { ...defaults.body, ...opts.body },
       backBody: defaults.backBody,
       paw: { ...defaults.paw, ...opts.paw },
@@ -202,8 +203,8 @@
           <stop offset="100%" stop-color="var(--coat-light)"/>
         </linearGradient>`,
       head: `
-        <path fill="url(#coat-tianyuan-muzzle)" d="M 400 182 C 424 182 446 214 452 246
-          C 458 274 432 292 400 292 C 368 292 342 274 348 246 C 354 214 376 182 400 182 Z"/>`,
+        <path fill="url(#coat-tianyuan-muzzle)" d="M 400 182 C 422.733 182 445.203 214 451.987 246
+          C 458 274 432 292 400 292 C 368 292 342 274 348.013 246 C 354.797 214 377.267 182 400 182 Z"/>`,
       body: '<ellipse cx="400" cy="334" rx="78" ry="82" fill="url(#coat-tianyuan-chest)"/>',
       backBody: '<ellipse cx="400" cy="337" rx="80" ry="100" fill="url(#coat-tianyuan-back)"/>',
     },

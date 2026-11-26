@@ -136,7 +136,7 @@
     const mirrorX = 2 * rig.turnX;
     for (const side of ['l', 'r']) {
       function placeEar(key, parent) {
-        const ear = cfg.ear;
+        const ear = key === 'ear-back' && cfg.earBack ? { ...cfg.ear, ...cfg.earBack } : cfg.ear;
         const rightArt = side === 'r' && sizes[key + '-r'];
         const asset = rightArt ? key + '-r' : key;
         if (!sizes[asset]) return;
