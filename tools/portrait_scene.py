@@ -32,7 +32,8 @@ const portraits = SillyCoats.list().map(({ id, species }) => {
   const { turnX, head: { pivot, restRotation, backPath }, eyes, ears } = rig;
   return {
     id, species, defs, shape: { ...coatShape, ...shape }, head, art, template: scene.template,
-    rig: { turnX, head: { pivot, restRotation, backPath }, eyes, ears: { outline: ears.outline } },
+    rig: { turnX, head: { pivot, restRotation, backPath }, eyes,
+      ears: { outline: ears.outline, innerPath: ears.innerPath } },
   };
 });
 console.log(JSON.stringify(portraits));
@@ -99,6 +100,8 @@ def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
                               "data-art-style": "fur"})
     ET.SubElement(root, "style").text = avatar_styles(prototype, "dog")
     defs = ET.SubElement(root, "defs")
+    outline = rig["head"]["backPath"]
+    by_id(scene, "clip-head-path").set("d", outline)
     for clip in ("clip-head", "clip-puppy-l", "clip-puppy-r", "dog-blush"):
         defs.append(by_id(scene, clip))
     defs.extend(ET.fromstring(f"<defs>{portrait['defs']}</defs>"))
@@ -114,12 +117,12 @@ def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
         for path in head.findall(".//path"):
             if "dog-ear-outline" in path.get("class", "").split():
                 path.set("d", rig["ears"]["outline"])
+            elif "coat-inner-ear" in path.get("class", "").split():
+                path.set("d", rig["ears"]["innerPath"])
         pose.extend(by_id(head, f"ear-{side}") for side in ("l", "r"))
     if head_image is not None:
         pose.append(head_image)
     else:
-        outline = rig["head"]["backPath"]
-        by_id(scene, "clip-head-path").set("d", outline)
         fill, line = (by_id(head, layer) for layer in ("head-fill", "head-line"))
         fill.set("d", outline)
         line.set("d", outline)

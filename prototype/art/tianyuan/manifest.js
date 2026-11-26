@@ -1,1 +1,1 @@
-SillyArt.register("tianyuan", {"head": [768, 647], "ear": [280, 384], "body": [517, 387], "arm-l": [117, 323], "arm-r": [117, 323], "paw-l": [146, 119], "paw-r": [144, 119], "tail": [139, 399], "back-head": [768, 641], "ear-back": [281, 384], "back-body": [505, 386]});
+SillyArt.register("tianyuan", {"head": [768, 718], "ear": [253, 384], "body": [517, 387], "arm-l": [117, 323], "arm-r": [117, 323], "paw-l": [146, 119], "paw-r": [144, 119], "tail": [139, 399], "back-head": [768, 712], "ear-back": [254, 384], "back-body": [505, 386]});
