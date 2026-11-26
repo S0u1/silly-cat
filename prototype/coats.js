@@ -209,6 +209,7 @@
     },
     {
       id: 'corgi', name: '柯基', species: 'dog', furOnly: true,
+      headphones: { cupGap: -29, cupY: 0.38, bandY: 18 },
       art: {
         ear: { x: 290.5, y: 45.5, width: 90 },
         earBack: { x: 295, y: 43, width: 79 },
@@ -223,6 +224,7 @@
     },
     {
       id: 'collie', name: '边牧', species: 'dog', furOnly: true,
+      headphones: { cupGap: -22, cupY: 0.46, bandY: 12 },
       art: {
         ear: { x: 286.5, y: 72.5, width: 84 },
         earBack: { x: 295, y: 64, width: 74 },
@@ -237,7 +239,11 @@
       body: '<ellipse fill="url(#coat-collie-chest)" cx="400" cy="321" rx="65" ry="90"/>',
       backBody: '<path class="coat-light" d="M 310 240 Q 400 300 490 240 L 490 267 Q 400 330 310 267 Z"/>',
     },
-  ].map((coat) => ({ ...coat, art: art(coat.species, coat.id, coat.art) }));
+  ].map((coat) => ({
+    ...coat,
+    art: art(coat.species, coat.id, coat.art),
+    headphones: { ...window.SillySpecies.get(coat.species).headphones.fit, ...coat.headphones },
+  }));
 
   const lineCoats = new Map(coats.filter((coat) => !coat.furOnly).map(({ art, lineShape, ...coat }) => [
     coat.id, lineShape ? { ...coat, shape: lineShape } : coat,

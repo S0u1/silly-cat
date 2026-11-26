@@ -163,7 +163,7 @@
       },
     },
     headphones: {
-      fit: { ...cat.headphones.fit, referenceWidth: 247, cupGap: -10, cupY: 0.44, bandY: 3, noteY: -42 },
+      fit: { ...cat.headphones.fit, cupsInFront: true, referenceWidth: 290, cupGap: -22, cupY: 0.40, bandY: 10, noteY: -42 },
       sway: { ...cat.headphones.sway, tailLift: 2 },
     },
     rig: {

@@ -6,8 +6,8 @@
 - `?sleep=5` 设置入睡时间；`?drool=` `?slump=` 覆盖流口水、趴下的时刻（从最后一次输入算起的秒数）；`?work=` 连续打字多久会生气，`?rest=` 罢工后休息多久消气。URL 参数可以超出滑块范围，控制台里 `window.__cat` 是只读调试信息。
 - `?push=0` 关闭推东西；`?pushevery=秒` 设置推杯子的随机间隔基准（默认 600 秒，URL 参数夹在 5–36000 秒）。
 - `?eyes=0` 关闭眼睛跟随，桌面设置键为 `eyesFollow`（默认开）。输入源用 `pointerAt(x, y)` 上报视口 CSS 坐标，原有 `pointerMove(dx, dy)` 继续驱动尾巴和鼠标道具。
-- `?listen=1` 一打开就戴着耳机（不播放戴上动画）；`?listen=cycle` 戴 8 秒、摘 4 秒循环，用来看动画。`?hpcolor=strawberry|mint|latte|sky` 预览耳机配色。桌面设置键为 `headphones`（默认关）和 `headphoneColor`（默认 `strawberry`）。耳机分两层画：耳罩侧面插在耳朵之后、头图之前，被头挡住内侧；头带、软垫、支架和贴纸追加在头部最后。
-- `?cat=毛色ID` 选择宠物，例如 `?cat=tianyuan` 选择大黄，网页控制栏也可以切换。`?style=line` 使用线条画风，省略时显示毛绒画风。
+- `?listen=1` 一打开就戴着耳机（不播放戴上动画）；`?listen=cycle` 戴 8 秒、摘 4 秒循环，用来看动画。`?hpcolor=strawberry|mint|latte|sky` 预览耳机配色。桌面设置键为 `headphones`（默认关）和 `headphoneColor`（默认 `strawberry`）。猫的耳罩侧面画在耳朵和头图之间，由头遮住内侧。狗用 `headphones.fit.cupsInFront` 将耳罩画在脸颊毛前。头带、软垫、支架和贴纸追加在头部最后。
+- `?cat=毛色ID` 选择宠物，也可以在网页控制栏切换。狗的 ID 分别是 `tianyuan`（大黄）、`corgi`（柯基）、`collie`（边牧）。`?style=line` 让猫使用线条画风，省略时显示毛绒画风。狗在两种设置下都显示毛绒画风。
 - 键盘和鼠标朝向猫摆放（猫是使用者，观众看到的键帽字是倒的）。凡是说左右的地方（`__cat.paws.left/right`、代码里的 `'L'/'R'`、`mouseSide`）都按猫自己的左右：`left` = 猫的左爪 = 观众右侧那只白爪。
 - 猫用尾巴操作鼠标：鼠标一动，尾巴从身后绕过身体一侧（鼠标在哪边就绕哪边）伸到前面，尾尖搭在鼠标上跟着动；点击时尾尖压到按的那颗键上，松开弹一下；鼠标停下 1.5 秒后收回身后接着摆。伸出 0.38 秒、收回 0.52 秒。两只爪子一直留在键盘上照常打字（空格默认用鼠标那一侧的爪，它正按着别的键就换另一只）。只有发飙抓鼠标砸、消气后修鼠标时才用爪子；发飙时尾巴先收回去再抓。`prefers-reduced-motion` 下尾巴直接切换，不做过渡。
 - 猫操作鼠标的调试字段：`__cat.paws.left/right` 是爪子此刻的目标（键名、`rest`、发飙/修理时的 `rage`/`repair` 等），不会再出现 `mouse`；`__cat.mouseSide` 仍是鼠标摆在猫的哪一侧；`__cat.tail` 是尾巴和鼠标的关系：`idle` 收在身后、`reaching` 伸出途中、`on-mouse` 搭在鼠标上、`retracting` 收回途中；`__cat.tailReach` 是伸出进度 0–1（按渲染帧推进，后台标签页里会落后）。
@@ -16,9 +16,9 @@
   - `tired` 累了　`sigh` 叹气循环（每 1.6 秒一次）　`angry` 生气（可以照常打字看点头）
   - `rage` 整段发飙（砸键盘、抓起鼠标砸碎；不循环时之后进入罢工）　`strike` 罢工（一直罢工，不会消气）　`repair` 消气后自己修好
   - `tail-mouse` 尾巴操作鼠标（5 秒一轮：静止 0.3 秒 → 鼠标开始动、尾巴伸出 → 跟着鼠标动几下 → 停 → 2.25 秒点一下左键 → 停够 1.5 秒收回 → 静止）。不带 `loop` 时放一遍后交还给真实输入
-  - `?cat=tianyuan&demo=paw-mouse` 预览鼠标侧的狗爪。用 `&at=1000` 看跟随、`&at=2300` 看点击、`&at=4260` 看收回。真实输入时同侧按键优先，松键后若鼠标仍活跃，狗爪回到鼠标上。
-  - `?cat=tianyuan&demo=tilt&at=900` 预览歪头。正常运行时，狗在清醒且键鼠静止至少 6 秒后才可能歪头，每段空闲最多一次，两次至少相隔 20 秒。
-  - `?demo=pet&at=950` 预览所选宠物的摸头表情。大黄眯眼、伸舌、快速摇尾。
+  - 选一只狗后，`&demo=paw-mouse` 预览鼠标侧的前爪。用 `&at=1000` 看跟随、`&at=2300` 看点击、`&at=4260` 看收回。真实输入时同侧按键优先，松键后若鼠标仍活跃，狗爪回到鼠标上。
+  - 选一只狗后，`&demo=tilt&at=900` 预览歪头。正常运行时，狗在清醒且键鼠静止至少 6 秒后才可能歪头，每段空闲最多一次，两次至少相隔 20 秒。
+  - `?demo=pet&at=950` 预览所选宠物的摸头表情。狗会眯眼、伸舌、快速摇尾。
   - `?demo=push` 播放一遍推杯子，`&loop=1` 缩短等待并循环播放，`&at=毫秒` 查看固定时刻。`?demo=push-back` 直接播放杯子在原位淡入。调试字段为 `__cat.pushPhase`、`__cat.mugOffset` 和 `__cat.nextPushIn`。
   - `drool` 流口水　`slumped` 趴在键盘上　`slump-in` 趴下的过渡（坐着睡 0.3 秒 → 按当前趴下方式趴下 → 趴好停 0.9 秒 → 0.4 秒快速起身）　`wake-marks` 刚醒、脸上带压痕
 - 趴下方式：每次进入趴下阶段随机选一种（各一半），`__cat.slumpStyle` 是当次实际用的方式。`?slump-style=nod|melt` 强制指定（调试用），可以和 `?demo=slump-in`、`?demo=slumped` 一起用；demo 不带它时在页面加载时随机选一次。两种都不伸手，爪子留在原位：
@@ -134,9 +134,9 @@ Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所
 
 设置中的 `cat` 仍保存毛色 ID，缺失或无效时回退到 `cow`。网页和设置页都加载 `species.js` 注册表、`species-cat.js` 猫定义和 `species-dog.js` 狗定义。`SillyCoats.list()` 返回 `{ id, name, species }`。网页初选、桌面设置变更、切换画风都经过 `SillyCoats.apply`，由它选择对应物种、安装素材并应用体型。
 
-大黄（`tianyuan`）使用 `dog` 物种。键位、肩和落爪位置共用猫的坐姿骨架，狗的头、眼耳、尾巴和睡眠接触点使用自己的参数。尾根在身体左后方，打字越密，卷尾摇得越快，睡着后停下。大黄在推杯子的同一开关和随机间隔下叼走矢量鼠标。点狗或等待 60 秒可归还。疲劳时大黄叼来牵引绳，随后拆键盘、背身闹脾气，休息后叼回键帽。以上动作沿用猫的 demo 名称，支持用 `&at=毫秒` 查看定格。大黄在两种画风下都使用毛绒部件，部件缺失时显示矢量造型。调试时可用 `__cat.tailWagHz` 查看摇尾频率、`__cat.tilt` 查看歪头角度；鼠标侧前爪搭在鼠标上时，其 `__cat.paws` 目标为 `mouse`。
+大黄（`tianyuan`）、柯基（`corgi`）和边牧（`collie`）共用 `dog` 物种。键位、肩和落爪位置共用猫的坐姿骨架，狗的头、眼耳、尾巴和睡眠接触点使用自己的参数。尾根在身体左后方，打字越密，尾巴摇得越快，睡着后停下。狗在推杯子的同一开关和随机间隔下叼走鼠标，点狗或等待 60 秒可归还。疲劳时，狗叼来牵引绳，随后拆键盘、背身闹脾气，休息后叼回键帽。用 `push`、`push-back`、`rage`、`strike` 和 `repair` 等 demo 查看这些动作，用 `&at=毫秒` 查看定格。狗在两种画风设置下都使用毛绒部件，部件缺失时显示矢量造型。调试时可用 `__cat.tailWagHz` 查看摇尾频率，用 `__cat.tilt` 查看歪头角度。鼠标侧前爪搭在鼠标上时，其 `__cat.paws` 目标为 `mouse`。
 
-截图工具默认仍截十只猫。用 `python3 tools/regress_shots.py capture --offline-webkit --pets dogs --out .art-src/regress/dogs-b2` 单独截狗，两个画风的原图分别在 `tianyuan/fur/` 和 `tianyuan/line/`，并排对照见 `overview.jpg`。`--pets all` 同时截取猫和狗。输出目录须位于 `.art-src/regress/` 中，且没有旧 PNG。
+截图工具默认截十只猫。用 `python3 tools/regress_shots.py capture --offline-webkit --pets dogs --out .art-src/regress/dogs-new` 单独截狗。各犬种的原图位于 `<犬种 ID>/fur/` 和 `<犬种 ID>/line/`。`--pets all` 同时截取猫和狗。每次使用 `.art-src/regress/` 下没有旧 PNG 的输出目录。
 
 新增物种时，在两个页面的 `coats.js` 之前加载新定义脚本，调用 `SillySpecies.register(id, definition)`。通过 `get(id)` 读取指定定义，`current` 读取当前定义。`select(id)` 切换五官和矢量部件，同一物种换毛色时复用已装部件。动画帧和动作模块使用当前定义。坐标沿用 800 × 620 舞台，角度为度，时长为毫秒。
 
@@ -156,9 +156,14 @@ Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所
 
 ## 手绘毛发部件
 
-网页与桌面主窗口都通过 `SillyCoats.apply(id)` 换猫。`index.html` 先加载 `art.js`、各猫的尺寸清单，再加载 `coats.js`。只有同时具备毛色的 `art` 配置和清单条目的部件才会替换对应矢量。切走时移除图片和切片，恢复原花纹与轮廓。眼睛、鼻口、牙齿、胡须、腮红、鼻边黑点、键鼠、杯子和特效继续由矢量绘制。头图鼓腮时绕 (400, 205) 缩放，压痕仍使用动态的头部裁剪路径。
+网页与桌面主窗口都通过 `SillyCoats.apply(id)` 切换桌宠。`index.html` 先加载 `art.js` 和各桌宠的尺寸清单，再加载 `coats.js`。只有同时具备毛色的 `art` 配置和清单条目的部件才会替换对应矢量。切走时移除图片和切片，恢复原花纹与轮廓。眼睛、鼻口、牙齿、胡须、腮红、鼻边黑点、键鼠、杯子和特效继续由矢量绘制。头图鼓腮时绕 (400, 205) 缩放，压痕仍使用动态的头部裁剪路径。
 
-大黄的空清单已接在 `prototype/art/tianyuan/manifest.js`。美术部件齐备后，运行 `python3 tools/prepare_art.py --cat tianyuan --source .art-src/tianyuan` 即可更新 WebP、清单和设置页头像。两种画风共用 `prototype/cats/tianyuan.svg`。
+新增一只狗时，沿用 `species-dog.js` 的骨架和动作。
+
+1. 以确认过的母图为准，在 800 × 620 舞台上对齐正背面的头、耳、肩和爪子，再拆成透明 PNG。需要 `head`、`ear`、`body`、`arm-l`、`arm-r`、`paw-l`、`paw-r`、`tail`、`back-head`、`ear-back`、`back-body`。头图留出矢量五官的位置，耳根和肩端留有与头身重叠的余量。前腿从肩到腕、尾巴从根到尖都竖向展开。右耳默认镜像左耳，花色或耳形不对称时另给 `ear-r.png` 和 `ear-back-r.png`。
+2. 在 `prototype/coats.js` 中登记 ID、名称、`species: 'dog'` 和 `furOnly: true`。在 `art` 按部件覆盖共用坐标，例如柯基分别用 `ear` 和 `earBack` 保持正背面直立耳，边牧另外用 `tail.scale` 调尾巴粗细。犬种条目的 `headphones` 可以覆盖 `cupGap`、`cupY`、`bandY`，分别调耳罩间距、耳罩高度和头带高度。按需要在 `style.css` 配置矢量回退色和眼皮、虹膜，接着将 ID 加入 `settings.js` 的 `PETS` 和截图工具的 `DOGS`。
+3. 在 `tools/prepare_art.py` 的 `PORTRAITS` 登记 `{"species": "dog"}`，运行 `python3 tools/prepare_art.py --cat 犬种ID --source .art-src/犬种ID/拆件目录`。脚本读取 `coats.js` 合并后的摆放参数，生成 `prototype/art/犬种ID/` 下的 WebP 和 `manifest.js`，并用头图、耳图和矢量五官生成 `prototype/cats/犬种ID.svg`。两种画风设置共用该头像。在 `index.html` 的 `art.js` 和 `coats.js` 之间加载新的清单。
+4. 用上面的 `--pets dogs` 命令拍回归截图。把静止正面与母图对照，并检查打字、左右够鼠标、歪头、摸头、趴睡、戴耳机、背身，以及叼鼠标和拆家流程。注意活动时耳根和肩端是否露底，爪尖是否落在键帽和鼠标上，状态切换时道具是否归位。最后在设置页检查头像和画风切换，并更新 README 的狗狗列表和画廊。
 
 新增一只猫时，依次完成以下步骤。
 

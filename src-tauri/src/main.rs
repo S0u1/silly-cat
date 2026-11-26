@@ -227,6 +227,21 @@ fn load_settings(app: AppHandle) -> Option<serde_json::Value> {
     serde_json::from_str::<serde_json::Value>(&s).ok().filter(|v| v.is_object())
 }
 
+#[tauri::command]
+fn set_pet_title(window: WebviewWindow, title: String) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("只能更新桌宠窗口标题".into());
+    }
+    if !title.starts_with("捣蛋") {
+        return Err("桌宠标题无效".into());
+    }
+    window.set_title(&title).map_err(|e| e.to_string())?;
+    if let Some(tray) = window.app_handle().tray_by_id("main") {
+        tray.set_tooltip(Some(title)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn cat_size_of(settings: &serde_json::Value) -> f64 {
     settings["size"]
         .as_f64()
@@ -808,6 +823,7 @@ fn main() {
             reset_input_monitoring,
             restart_app,
             load_settings,
+            set_pet_title,
             preview_cat_size,
             save_settings,
             open_settings,
@@ -889,7 +905,7 @@ fn main() {
 
             // 托盘菜单
             let mut tray = TrayIconBuilder::with_id("main")
-                .tooltip("捣蛋奶牛猫")
+                .tooltip(win.title()?)
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 // 这个处理函数是应用级的：托盘菜单和右键菜单（show_context_menu）的事件都会到这里

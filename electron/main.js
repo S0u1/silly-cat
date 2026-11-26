@@ -25,6 +25,7 @@ const results = [], consoleErrors = [];
 
 const RUN_LOG_NAME = 'silly-cat.log';
 const ERROR_LOG_NAME = '捣蛋猫兼容版-错误日志.txt';
+const DEFAULT_PET_TITLE = '捣蛋奶牛猫';
 
 function currentRunLog() {
   return { file: userData && path.join(userData, RUN_LOG_NAME) };
@@ -278,7 +279,7 @@ async function ready() {
     app, net, session, shell, emit: notice => send('silly:update', notice), settings: loadSettings(), selftest
   });
   win = new BrowserWindow({
-    ...bounds, useContentSize: true, title: '捣蛋猫 兼容版', frame: false, transparent: !win7Card,
+    ...bounds, useContentSize: true, title: DEFAULT_PET_TITLE, frame: false, transparent: !win7Card,
     backgroundColor: win7Card ? '#efe6d6' : '#00000000',
     hasShadow: false, alwaysOnTop: true, skipTaskbar: true, resizable: false,
     maximizable: false, minimizable: false, fullscreenable: false, focusable: false, show: false,
@@ -698,11 +699,19 @@ function mediaActivity() {
   return { supported: true, active: !!audioSample?.active && now - audioSample.time <= 3000, via: 'meter' };
 }
 
-function invokeCommand(command, args) {
+function invokeCommand(command, args, caller) {
   switch (command) {
     case 'media_activity': return mediaActivity();
     case 'platform_flags': return { win7: win7Card };
     case 'load_settings': return loadSettings();
+    case 'set_pet_title': {
+      if (caller !== win || !liveWindow()) throw new Error('unauthorized IPC sender');
+      const title = args?.title;
+      if (typeof title !== 'string' || !title.startsWith('捣蛋')) throw new Error('桌宠标题无效');
+      win.setTitle(title);
+      updateTrayTooltip(title);
+      return;
+    }
     case 'save_settings': {
       const settings = args?.settings;
       if (!isObject(settings)) throw new Error('settings 必须是对象');
@@ -790,7 +799,7 @@ function installIPC() {
       return { error: error.message ?? String(error) };
     }
   };
-  ipcMain.handle('silly:invoke', handle((_, command, args) => invokeCommand(command, args)));
+  ipcMain.handle('silly:invoke', handle((caller, command, args) => invokeCommand(command, args, caller)));
   ipcMain.handle('silly:window', handle(windowMethod));
   ipcMain.on('silly:drag-end', (event) => {
     if (callerWindow(event) === win) endDrag();
@@ -800,6 +809,10 @@ function installIPC() {
 
 function trayAvailable() {
   return !!tray && !tray.isDestroyed();
+}
+
+function updateTrayTooltip(title) {
+  if (trayAvailable()) tray.setToolTip(`捣蛋猫 兼容版 · ${title}`);
 }
 
 function refreshTrayMenu() {
@@ -914,7 +927,7 @@ function installTray() {
     const image = nativeImage.createFromPath(iconPath);
     if (image.isEmpty()) throw new Error(`Cannot load tray icon: ${iconPath}`);
     tray = new Tray(image);
-    tray.setToolTip('捣蛋猫 兼容版');
+    updateTrayTooltip(DEFAULT_PET_TITLE);
     refreshTrayMenu();
     if (process.platform === 'win32') {
       tray.on('right-click', refreshTrayMenu);

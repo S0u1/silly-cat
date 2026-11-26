@@ -144,7 +144,7 @@
     const arc = `M ${left} ${ya} A ${(right - left) / 2} ${ya - top} 0 0 1 ${right} ${ya}`;
     // inward：画面左侧为 1（向右是头内侧），右侧为 -1。
     const sides = [[left, 1], [right, -1]];
-    rear.innerHTML = sides.map(([x, inward]) => {
+    const cups = sides.map(([x, inward]) => {
       const inner = x + inward * rx, outer = x - inward * rx;
       const padX = inner - inward * 3 * k;
       const rim = outer + inward * 8 * k;
@@ -157,7 +157,10 @@
         <path class="hp-line hp-cup-shine" d="M ${x + inward * 2 * k} ${y + 12 * k} V ${y + 30 * k}"/>
       </g>`;
     }).join('');
+    // 狗的耳罩靠内，需盖在脸颊两侧的毛上。
+    rear.innerHTML = fit.cupsInFront ? '' : cups;
     foreground.innerHTML = `
+      ${fit.cupsInFront ? cups : ''}
       <path class="hp-line hp-band-outline" d="${arc}" stroke-width="${12 * k + 9}"/>
       <path class="hp-line hp-band" d="${arc}" stroke-width="${12 * k}"/>
       <rect class="hp-cushion" x="${cx - 31 * k}" y="${top - 11 * k}" width="${62 * k}" height="${22 * k}" rx="${11 * k}"/>
@@ -290,7 +293,7 @@
     function render(now, dt, rm) {
       if (wearing || transition) {
         const frame = sample(transition, wearing, now, rm);
-        const { fit } = window.SillySpecies.current.headphones;
+        const fit = window.SillyCoats.current().headphones;
         updatePath(front, el.headClip, fit);
         updateBack(back, fit);
         for (const { layers, geometry: { w } } of [front, back]) {

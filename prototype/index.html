@@ -417,14 +417,26 @@
   const params = new URLSearchParams(location.search);
   SillySpecies.select('cat');
   const desktopMode = SillyDesktopInput.isDesktop();
+  let petTitle;
+  function updatePetTitle({ name }) {
+    const title = '捣蛋' + name;
+    if (petTitle === title) return;
+    petTitle = document.title = title;
+    if (desktopMode) {
+      window.__TAURI__.core.invoke('set_pet_title', { title })
+        .catch((error) => console.warn('更新桌宠标题失败', error));
+    }
+  }
   if (!desktopMode) {
     const catSelect = document.getElementById('cat-select');
     for (const { id, name } of SillyCoats.list()) catSelect.add(new Option(name, id));
-    catSelect.value = SillyCoats.setArtStyle(params.get('style'), params.get('cat')).id;
+    const coat = SillyCoats.setArtStyle(params.get('style'), params.get('cat'));
+    catSelect.value = coat.id;
+    updatePetTitle(coat);
     // 保留原生下拉框的按键操作，避免被页面的全局键盘监听截走。
     catSelect.addEventListener('keydown', (event) => event.stopPropagation());
     catSelect.addEventListener('change', () => {
-      SillyCoats.apply(catSelect.value);
+      updatePetTitle(SillyCoats.apply(catSelect.value));
       catSelect.blur();
     });
   }
@@ -483,7 +495,7 @@
     // 猫的品种和画风只读设置。其他支持 URL 的字段在启动时优先用 URL 参数，之后以设置窗口为准。
     const applySettings = (raw, skipUrl) => {
       const s = SillySettings.sanitize(raw);
-      SillyCoats.setArtStyle(s.artStyle, s.cat);
+      updatePetTitle(SillyCoats.setArtStyle(s.artStyle, s.cat));
       const use = (k) => !(skipUrl && num(k) !== null);
       if (use('sleep')) cat.setSleepSeconds(s.sleep);
       if (use('drool')) sleepMod.setDroolSeconds(s.drool ?? NaN); // NaN = 自动（入睡时间 × 2）
@@ -498,10 +510,19 @@
       if (!(skipUrl && Number.isFinite(pushEveryParam))) push.setEverySeconds(s.pushEvery);
     };
     const T = window.__TAURI__;
-    T.core.invoke('load_settings')
-      .then((raw) => { if (raw) applySettings(raw, true); else SillyCoats.apply('cow'); })
-      .catch(() => SillyCoats.apply('cow'));
-    T.event.listen('silly:settings', (ev) => applySettings(ev.payload, false));
+    let settingsChanged = false;
+    T.event.listen('silly:settings', (ev) => {
+      settingsChanged = true;
+      applySettings(ev.payload, false);
+    })
+      .catch((error) => console.warn('订阅桌宠设置失败', error))
+      .then(() => T.core.invoke('load_settings'))
+      .catch(() => null)
+      .then((raw) => {
+        if (settingsChanged) return;
+        if (raw) applySettings(raw, true);
+        else updatePetTitle(SillyCoats.apply(SillySettings.DEFAULTS.cat));
+      });
   } else {
     SillyInput.createBrowserInput(cat, {
       headEl, retrieveTarget,
