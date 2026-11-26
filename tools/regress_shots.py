@@ -8,9 +8,12 @@ from urllib.parse import urlencode
 
 from PIL import Image, ImageChops, ImageDraw
 
-from readme_images import CATS, ROOT, renderer
+from readme_images import CATS, CLOCK, ROOT, renderer
 
 OUTPUT = ROOT / '.art-src/regress'
+# The hidden web controls poll __cat on a real interval. Its getters can enter
+# a sleep stage before the first simulated frame, shifting Zs and drool by a tick.
+REGRESSION_CLOCK = CLOCK + '\nwindow.setInterval = () => 0;'
 DEMOS = {
     'tail-mouse': [0, 530, 2250, 4200, 4900],
     'push': [0, 1700, 2960, 3500, 5100], 'push-back': [0, 300, 600],
@@ -29,6 +32,9 @@ DOG_DEMOS = {
     **{name: times for name, times in DEMOS.items()
        if name not in ('tail-mouse', 'push', 'push-back')},
 }
+DOG_MOUSE_RIGHT = (1000, 2300)
+DOG_CLOSEUPS = ('idle', 'pet-950', 'paw-mouse-1000', 'tilt-900',
+                'wake-marks-1200', 'strike-1600', 'slumped-600')
 
 
 def dog_overview(dest, pet):
@@ -36,6 +42,7 @@ def dog_overview(dest, pet):
     poses = ['idle', *(f'type-{key}' for key in 'ajf'),
              *(f'pointer-{i}' for i in range(4)), 'gaze-left', 'gaze-right',
              *(f'{name}-{at}' for name, times in DOG_DEMOS.items() for at in times),
+             *(f'paw-mouse-right-{at}' for at in DOG_MOUSE_RIGHT),
              'slumped-nod', 'slumped-melt', 'headphones-front', 'headphones-back']
     width, height, pairs_per_row = 162, 146, 5
     rows = (len(poses) + pairs_per_row - 1) // pairs_per_row
@@ -48,7 +55,22 @@ def dog_overview(dest, pet):
                 frame.thumbnail((width, height - 22), Image.Resampling.LANCZOS)
                 sheet.paste(frame, (x, y))
             draw.text((x + 6, y + height - 19), f'{style}  {pose}', fill='#302e2b')
+    sheet.thumbnail((2000, 2000), Image.Resampling.LANCZOS)
     sheet.save(dest / 'overview.jpg', quality=85)
+
+
+def dog_closeups(dest, pet):
+    width, height, label, columns = 800, 620, 24, 4
+    sheet = Image.new('RGB', (width * columns, (height + label) * 2), '#f4f1ed')
+    draw = ImageDraw.Draw(sheet)
+    for i, pose in enumerate(DOG_CLOSEUPS):
+        x, y = i % columns * width, i // columns * (height + label)
+        with Image.open(dest / pet / 'fur' / f'{pose}.png') as frame:
+            if frame.size != (width, height):
+                raise ValueError(f'{pose}: expected an 800 × 620 source frame')
+            sheet.paste(frame, (x, y + label))
+        draw.text((x + 8, y + 6), pose, fill='#302e2b')
+    sheet.save(dest / 'closeups.jpg', quality=85)
 
 
 def capture_pair(open_page, dest, cat, style):
@@ -80,6 +102,11 @@ def capture_pair(open_page, dest, cat, style):
                 ev(f"advance({max(1, round(at * .06))})")
                 shot().save(folder / f'{demo}-{at}.png')
     if cat in DOGS:
+        for at in DOG_MOUSE_RIGHT:
+            with page(demo='paw-mouse', at=at) as (ev, shot):
+                ev("document.getElementById('mouse-left').click()")
+                ev(f"advance({round(at * .06)})")
+                shot().save(folder / f'paw-mouse-right-{at}.png')
         for pose in ('nod', 'melt'):
             with page(demo='slumped', **{'slump-style': pose}) as (ev, shot):
                 ev("advance(90)")
@@ -107,7 +134,7 @@ def capture(args):
     if OUTPUT.resolve() not in dest.parents or any(dest.glob('**/*.png')):
         raise ValueError('Use a fresh directory inside .art-src/regress/')
     def run(pair):
-        with TemporaryDirectory() as tmp, renderer(args.offline_webkit, Path(tmp)) as open_page:
+        with TemporaryDirectory() as tmp, renderer(args.offline_webkit, Path(tmp), clock=REGRESSION_CLOCK) as open_page:
             @contextmanager
             def regression_page(*params):
                 with open_page(*params) as (ev, shot):
@@ -136,6 +163,7 @@ def capture(args):
         list(pool.map(run, pairs))
     if args.pets in ('dogs', 'all'):
         dog_overview(dest, 'tianyuan')
+        dog_closeups(dest, 'tianyuan')
     print(f'{len(list(dest.rglob("*.png")))} screenshots')
 
 

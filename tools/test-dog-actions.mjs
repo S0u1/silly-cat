@@ -8,7 +8,7 @@ const scene = read('index.html');
 const scripts = ['species.js', 'species-cat.js', 'species-dog.js', 'cat.js', 'push.js']
   .map((file) => new Script(read(file), { filename: file }));
 
-function harness({ species = 'dog', demo = null, sleepSeconds = 60, random = 0.1, push = false } = {}) {
+function harness({ species = 'dog', demo = null, sleepSeconds = 60, random = 0.1, push = false, mouseSide = 'right' } = {}) {
   let now = 0, nextFrame;
   const nodes = new Map(), keys = new Map();
   const sceneIds = (source) => Array.from(source.matchAll(/\bid="([\w-]+)"/g), (match) => match[1]);
@@ -47,11 +47,11 @@ function harness({ species = 'dog', demo = null, sleepSeconds = 60, random = 0.1
   for (const script of scripts) script.runInContext(sandbox);
   sandbox.SillySpecies.select(species);
   const keyboard = {
-    center: (code) => ({ x: code === 'KeyG' ? 460 : 320, y: 474 }),
+    center: (code) => ({ x: code === 'KeyG' ? 437.5 : 347.5, y: 462 }),
     setDown: (code, down) => keys.set(code, down),
   };
   const modules = push ? [(ctx) => sandbox.SillyPush.create(ctx, { demo, everySeconds: 5 })] : [];
-  const pet = sandbox.SillyCat.createCat({ keyboard, eyesFollow: false, sleepSeconds, demo, modules });
+  const pet = sandbox.SillyCat.createCat({ keyboard, eyesFollow: false, sleepSeconds, demo, modules, mouseSide });
   const update = (time) => { now = time; nextFrame(now); };
   update(0);
   return {
@@ -74,6 +74,20 @@ function harness({ species = 'dog', demo = null, sleepSeconds = 60, random = 0.1
 
 const pinned = (name, at) => ({ name, at, loop: false });
 const translate = (node) => node.attributes.get('transform').match(/^translate\(([-.\d]+) ([-.\d]+)\)/).slice(1).map(Number);
+const rotation = (node) => Number(node.attributes.get('transform').match(/rotate\(([-.\d]+)/)[1]);
+const arm = (h, side) => h.node(`arm-${side}-fill`).attributes.get('d').match(/[-.\d]+/g).map(Number);
+const armLength = ([x0, y0, cx, cy, x1, y1]) => {
+  let length = 0, x = x0, y = y0;
+  for (let i = 1; i <= 40; i++) {
+    const t = i / 40, u = 1 - t;
+    const nx = u * u * x0 + 2 * u * t * cx + t * t * x1;
+    const ny = u * u * y0 + 2 * u * t * cy + t * t * y1;
+    length += Math.hypot(nx - x, ny - y);
+    x = nx;
+    y = ny;
+  }
+  return length;
+};
 
 test('dog uses the mouse-side paw and gives that side’s typing priority', () => {
   const h = harness();
@@ -112,12 +126,37 @@ test('dog uses the mouse-side paw and gives that side’s typing priority', () =
   h.advance(2360);
   assert.equal(h.debug.paws.left, 'mouse');
   assert.equal(h.debug.paws.right, 'rest');
-  assert.ok(translate(h.node('paw-r'))[0] > 690);
+  const [mx, my] = translate(h.node('mouse'));
+  const [rx, ry] = translate(h.node('paw-r'));
+  assert.ok(Math.hypot(rx - mx, ry - my - 4) < 3);
   h.pet.keyDown('KeyG');
   assert.equal(h.debug.paws.left, 'KeyG');
   h.pet.keyUp('KeyG');
   h.advance(2480);
   assert.equal(h.debug.paws.left, 'mouse');
+});
+
+test('dog leans toward either mouse position with a bent, bounded foreleg', () => {
+  for (const [mouseSide, slot, direction] of [['right', 'l', -1], ['left', 'r', 1]]) {
+    const h = harness({ mouseSide });
+    const idle = arm(h, slot);
+    h.pet.pointerMove(direction * 24, 24);
+    for (let time = 16; time <= 500; time += 16) {
+      h.advance(time);
+      assert.ok(armLength(arm(h, slot)) <= armLength(idle) * 1.35 + 0.15);
+      const tilt = direction * rotation(h.node('cat-body'));
+      assert.ok(tilt > 0 && tilt <= 8);
+      assert.equal(rotation(h.node('cat-head')), rotation(h.node('cat-body')));
+      if (time === 16) assert.ok(tilt < 3);
+    }
+    const [x, y, cx, cy, ex, ey] = arm(h, slot);
+    assert.ok((x - idle[0]) * direction > 25 && y - idle[1] > 20);
+    assert.ok(Math.hypot(cx - (x + ex) / 2, cy - (y + ey) / 2) > 15);
+    assert.ok(direction * rotation(h.node('cat-body')) > 7.9);
+    h.advance(2200);
+    assert.equal(rotation(h.node('cat-body')), 0);
+    assert.deepEqual(arm(h, slot), idle);
+  }
 });
 
 test('dog wag tracks typing over seconds, accelerates for petting and stops in sleep', () => {
@@ -192,7 +231,10 @@ test('fixed demos keep the pose, while the existing cat mouse and cat pet demos 
   assert.equal(click.debug.paws.right, 'mouse');
   assert.equal(click.debug.tail, 'idle');
   assert.equal(click.node('mouse-btn-l').classes.has('down'), true);
-  assert.deepEqual(translate(click.node('paw-l')), [113, 493]);
+  const [mx, my] = translate(click.node('mouse'));
+  assert.deepEqual([mx, my], [127, 405]);
+  assert.deepEqual(translate(click.node('paw-l')), [mx + 9, my + 9]);
+  assert.equal(rotation(click.node('cat-body')), -8);
   const nodes = ['cat-head', 'paw-l', 'tail-body', 'mouse', 'mouse-btn-l'];
   const frame = click.snapshot(nodes);
   click.pet.keyDown('KeyK');
@@ -207,6 +249,7 @@ test('fixed demos keep the pose, while the existing cat mouse and cat pet demos 
   assert.equal(legacy.debug.tail, 'on-mouse');
   assert.equal(legacy.debug.paws.right, 'rest');
   assert.equal(legacy.node('mouse-btn-l').classes.has('down'), true);
+  assert.deepEqual(translate(legacy.node('mouse')), [104, 484]);
   for (const species of ['cat', 'dog']) {
     const pet = harness({ species, demo: pinned('pet', 950) });
     assert.equal(pet.debug.state, 'petted');

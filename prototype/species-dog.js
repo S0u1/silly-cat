@@ -38,16 +38,21 @@
       },
     },
     art: {
-      head: { cx: 400, cy: 186, width: 260 },
+      head: { cx: 399.875, cy: 186, width: 266.25 },
+      backHead: { cx: 400, cy: 172.393, width: 261 },
       imprint: { dx: 37, dy: 8 },
       ear: { x: 292, y: 18, width: 96, pivot: earPivots.L },
       body: { cx: 400, y: 246, width: 250 },
       paw: { ...cat.art.paw },
-      arm: { ...cat.art.arm },
-      tail: { ...cat.art.tail },
+      arm: { ...cat.art.arm, top: 10, bottom: 8, overlap: 0.75 },
+      tail: { ...cat.art.tail, fringe: 4, overlap: 0.75 },
     },
     coatShape: { ...cat.coatShape },
     mousePaw: true,
+    mouseReach: {
+      inset: 23, rise: 79, degrees: 8, slide: 8, shoulderX: 15, shoulderY: 27,
+      stretch: 1.35, bend: 17, tau: 85,
+    },
     idleTilt: true,
     tailTyping: true,
     petTongue: true,
@@ -113,6 +118,7 @@
       },
       paws: {
         ...rig.paws,
+        shoulders: { L: { x: 456, y: 289 }, R: { x: 344, y: 289 } },
         bend: { base: 33, falloff: 0.34, min: 1, max: 33 },
       },
       tail: {

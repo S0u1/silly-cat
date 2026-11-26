@@ -109,25 +109,25 @@ def local_server():
 
 
 @contextmanager
-def renderer(offline, tmp):
+def renderer(offline, tmp, *, clock=CLOCK):
     if offline:
         source = tmp / 'reader.m'
         source.write_text(NATIVE)
         binary = tmp / 'reader'
         subprocess.run(['clang', '-w', '-framework', 'WebKit', '-framework', 'Cocoa',
                         str(source), '-o', str(binary)], check=True, timeout=30)
-        yield partial(native_page, binary, tmp)
+        yield partial(native_page, binary, tmp, clock=clock)
     else:
         with local_server() as url, sync_playwright() as pw:
             browser = pw.webkit.launch(timeout=12000)
             try:
-                yield partial(browser_page, browser, url)
+                yield partial(browser_page, browser, url, clock=clock)
             finally:
                 browser.close()
 
 
 @contextmanager
-def native_page(binary, tmp, size, query, gallery):
+def native_page(binary, tmp, size, query, gallery, *, clock=CLOCK):
     html = GALLERY if gallery else (WEB / 'index.html').read_text()
     if gallery:
         for key, _ in CATS:
@@ -138,7 +138,7 @@ def native_page(binary, tmp, size, query, gallery):
         # loadHTMLString 的 baseURL 指向素材目录，查询串单独传给原页面解析。
         html = html.replace('new URLSearchParams(location.search)',
                             f'new URLSearchParams({json.dumps(query)})')
-        html = html.replace('</head>', f'<style>{SCENE_STYLE}</style><script>{CLOCK}</script></head>')
+        html = html.replace('</head>', f'<style>{SCENE_STYLE}</style><script>{clock}</script></head>')
     path = tmp / 'page.html'
     path.write_text(html)
     proc = subprocess.Popen([binary, *map(str, size), path, WEB],
@@ -175,11 +175,11 @@ def native_page(binary, tmp, size, query, gallery):
 
 
 @contextmanager
-def browser_page(browser, url, size, query, gallery):
+def browser_page(browser, url, size, query, gallery, *, clock=CLOCK):
     page = browser.new_page(viewport=dict(zip(('width', 'height'), size)), device_scale_factor=2)
     page.set_default_timeout(12000)
     try:
-        page.add_init_script(CLOCK)
+        page.add_init_script(clock)
         if gallery:
             page.route('**/gallery.html', lambda r: r.fulfill(body=GALLERY, content_type='text/html'))
         page.goto(url + ('gallery.html' if gallery else '?' + query), wait_until='networkidle')

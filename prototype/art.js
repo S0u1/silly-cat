@@ -79,7 +79,9 @@
       offset += length;
       // 裁切多边形：两条斜切线围出这一段；第一段往根部、最后一段往末端各延长，半宽留一点余量
       const r = width * 0.55 + 1;
-      const s0 = first ? { x: p.x - d.x * (top + 2), y: p.y - d.y * (top + 2) } : p;
+      // 富纹理条带的共边经过两次抗锯齿会露底色，沿切线轻微覆盖前一段。
+      const startExtra = first ? top + 2 : (config.overlap || 0);
+      const s0 = startExtra ? { x: p.x - d.x * startExtra, y: p.y - d.y * startExtra } : p;
       const s1 = last ? { x: q.x + d.x * (bottom + 2), y: q.y + d.y * (bottom + 2) } : q;
       const m0 = miters[i], m1 = miters[i + 1];
       poly.setAttribute('points', `${f2(s0.x + m0.x * r)},${f2(s0.y + m0.y * r)} ${f2(s1.x + m1.x * r)},${f2(s1.y + m1.y * r)} ` +

@@ -34,6 +34,11 @@
   const approach = (cur, target, dt, tau) => cur + (target - cur) * (1 - Math.exp(-dt / tau));
   const f1 = (v) => (Math.round(v * 10) / 10).toString();
   const smooth = (v) => { const t = clamp(v, 0, 1); return t * t * (3 - 2 * t); };
+  function rotationOffset(x, y, degrees) {
+    const angle = degrees * Math.PI / 180;
+    const c = Math.cos(angle) - 1, s = Math.sin(angle);
+    return { x: x * c - y * s, y: x * s + y * c };
+  }
   const tiltAt = (elapsed) => TILT_DEGREES * smooth(elapsed / TILT_EASE_MS) * smooth((TILT_MS - elapsed) / TILT_EASE_MS);
   // Windows 上不跟随系统：浏览器内核在 Windows 上把「在 Windows 中显示动画」关掉当成减少动画，
   // 而这个开关常被「最佳性能」、远程桌面、虚拟机顺手关掉，用户并没有要求少看动画。
@@ -267,6 +272,7 @@
       sleepMs: sleepSeconds * 1000, lastInput: t0, sleepSince: 0,
       pressed: new Map(),               // code -> 'L' | 'R'
       mouseSide, mouseActiveUntil: 0, mouseButtons: new Set(), mouseOff: { x: 0, y: 0 },
+      mouseLean: 0,
       pet: null,                        // { nx, ny }
       shakeStart: -1e9, nodStart: -1e9, lastKeyAt: -1e9, lookCode: null, lookSide: 'R',
       pointer: null, followingPointer: false, lastPointerMove: t0,
@@ -306,7 +312,12 @@
     const paws = { L: makePaw('L'), R: makePaw('R') };
     // 发飙和修理沿用鼠标所在侧；平时是否用爪操作鼠标，由物种决定。
     const mousePaw = () => (S.mouseSide === 'right' ? paws.R : paws.L);
-    const mouseHome = () => MOUSE_HOME[S.mouseSide];
+    const mouseHome = () => {
+      const home = MOUSE_HOME[S.mouseSide], reach = currentSpecies().mouseReach;
+      if (!reach) return home;
+      const direction = S.mouseSide === 'left' ? 1 : -1;
+      return { x: home.x - direction * reach.inset, y: home.y - reach.rise };
+    };
     const mousePoint = () => {
       const off = motionFrame?.mouse || S.mouseOff;
       return { x: mouseHome().x + off.x, y: mouseHome().y + off.y };
@@ -612,9 +623,32 @@
       }
     }
 
+    const pawOutward = (paw) => paw.side === 'L' ? 1 : -1;
+
+    function poseMouseReach(now, dt, rm, P, rig) {
+      const reach = currentSpecies().mouseReach;
+      if (!reach) { S.mouseLean = 0; return; }
+      const paw = mousePaw(), target = targetOf(paw, now, P);
+      const direction = pawOutward(paw);
+      const demoReach = motionFrame?.mouse && (target.id === 'mouse' || target.id === 'rest');
+      const goal = direction * (demoReach ? smooth(demoMouseReach(motionFrame.time, 380, 520)) : Number(target.id === 'mouse'));
+      S.mouseLean = rm || demoReach ? goal : approach(S.mouseLean, goal, dt, reach.tau);
+      if (Math.abs(S.mouseLean) < 0.001) S.mouseLean = 0;
+      const angle = S.mouseLean * reach.degrees;
+      const body = rig.body.pivot, head = rig.head.pivot;
+      const shift = rotationOffset(head.x - body.x, head.y - body.y, angle);
+      const slide = S.mouseLean * reach.slide;
+      P.bodyRot += angle;
+      P.bodyX += slide;
+      P.headRot += angle;
+      P.headX += shift.x + slide;
+      P.headY += shift.y;
+    }
+
     function renderPaws(now, dt, P, rig) {
       const { shoulders, pressScale, lift, wristY, bend: curve } = rig.paws;
       const pivot = rig.body.pivot;
+      const mouseReach = currentSpecies().mouseReach;
       for (const paw of [paws.L, paws.R]) {
         const t = targetOf(paw, now, P);
         const goal = t.x !== undefined ? { x: t.x, y: t.y } : pointFor(t.id, paw);
@@ -638,8 +672,7 @@
 
         const sx = 1 + (pressScale.x + P.pressBoost) * paw.press + lift.scale * paw.lift;
         const sy = 1 - (pressScale.y + P.pressBoost) * paw.press + lift.scale * paw.lift;
-        const py = paw.y - lift.y * paw.lift;
-        paw.els.paw.setAttribute('transform', `${turnTf(P, rig.turnX)}translate(${f1(paw.x)} ${f1(py)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})`);
+        let px = paw.x, py = paw.y - lift.y * paw.lift;
 
         // 手臂：肩部锚点 -> 爪背的二次曲线，距离越近弯得越多
         // 肩部锚点跟着身体的缩放走
@@ -648,12 +681,35 @@
           x: pivot.x + (shoulder.x - pivot.x) * P.bodySX + P.bodyX,
           y: pivot.y + (shoulder.y - pivot.y) * P.bodySY + P.lift + P.bodyY,
         };
-        const ex = paw.x, ey = py + wristY;
+        const outward = pawOutward(paw); // 猫的左爪在观众右侧
+        const lean = Math.max(0, S.mouseLean * outward);
+        const reaching = mouseReach && (t.id === 'mouse' || (t.id === 'rest' && lean > 0));
+        if (mouseReach && P.bodyRot) {
+          const shift = rotationOffset((shoulder.x - pivot.x) * P.bodySX, (shoulder.y - pivot.y) * P.bodySY, P.bodyRot);
+          sh.x += shift.x;
+          sh.y += shift.y;
+        }
+        const reachBend = mouseReach ? Math.max(curve.min, mouseReach.bend * lean) : 0;
+        if (lean > 0) {
+          sh.x += outward * lean * mouseReach.shoulderX;
+          sh.y += lean * mouseReach.shoulderY;
+        }
+        if (reaching) {
+          const rest = restPoint(paw.side);
+          const max = mouseReach.stretch * Math.hypot(rest.x - shoulder.x, rest.y + wristY - shoulder.y);
+          // 两段控制多边形是二次曲线弧长的上界，先为肘弯留出长度。
+          const limit = Math.sqrt(Math.max(0, max * max - 4 * reachBend * reachBend));
+          const dx = px - sh.x, dy = py + wristY - sh.y;
+          const scale = Math.min(1, limit / (Math.hypot(dx, dy) || 1));
+          px = sh.x + dx * scale;
+          py = sh.y + dy * scale - wristY;
+        }
+        paw.els.paw.setAttribute('transform', `${turnTf(P, rig.turnX)}translate(${f1(px)} ${f1(py)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})`);
+        const ex = px, ey = py + wristY;
         const vx = ex - sh.x, vy = ey - sh.y, len = Math.hypot(vx, vy) || 1;
         let nx = -vy / len, ny = vx / len;
-        const outward = paw.side === 'L' ? 1 : -1; // 猫的左爪在观众右侧
         if (nx * outward < 0) { nx = -nx; ny = -ny; }
-        const bend = clamp(curve.base - len * curve.falloff, curve.min, curve.max);
+        const bend = reaching ? reachBend : clamp(curve.base - len * curve.falloff, curve.min, curve.max);
         const cx = sh.x + vx * 0.5 + nx * bend, cy = sh.y + vy * 0.5 + ny * bend;
         const d = `M ${f1(sh.x)} ${f1(sh.y)} Q ${f1(cx)} ${f1(cy)} ${f1(ex)} ${f1(ey)}`;
         SillyArt.arm(paw.artSlot, sh, cx, cy, ex, ey);
@@ -1027,6 +1083,7 @@
         const P = defaultPose();
         call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
         const rig = currentRig();
+        poseMouseReach(now, dt, rm, P, rig);
         setCatHidden(P.hideCat);
         renderMouse(dt, P);
         renderPaws(now, dt, P, rig);
