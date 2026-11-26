@@ -28,6 +28,8 @@ PORTRAITS = {
     "maine": {"head": (400.4, 178.1, 322.3), "ear": (278, 14, 110, 0), "ear_scale": 1.15},
     "sphynx": {"head": (400.1, 169.1, 255.3), "ear": (268, 34, 110, 16), "ear_scale": 1.18},
     "tianyuan": {"species": "dog"},
+    "corgi": {"species": "dog"},
+    "collie": {"species": "dog"},
 }
 
 

@@ -32,7 +32,7 @@
       headPath: opts.headPath,
       imprint: { ...defaults.imprint, ...opts.imprint },
       ear: { ...defaults.ear, ...opts.ear },
-      earBack: defaults.earBack,
+      earBack: opts.earBack ? { ...defaults.earBack, ...opts.earBack } : defaults.earBack,
       body: { ...defaults.body, ...opts.body },
       backBody: defaults.backBody,
       paw: { ...defaults.paw, ...opts.paw },
@@ -206,6 +206,36 @@
         <path fill="url(#coat-tianyuan-muzzle)" d="${window.SillySpecies.get('dog').rig.head.muzzlePath}"/>`,
       body: '<ellipse cx="400" cy="334" rx="78" ry="82" fill="url(#coat-tianyuan-chest)"/>',
       backBody: '<ellipse cx="400" cy="337" rx="80" ry="100" fill="url(#coat-tianyuan-back)"/>',
+    },
+    {
+      id: 'corgi', name: '柯基', species: 'dog', furOnly: true,
+      art: {
+        ear: { x: 290.5, y: 45.5, width: 90 },
+        earBack: { x: 295, y: 43, width: 79 },
+      },
+      defs: `<radialGradient id="coat-corgi-chest">
+        <stop offset="60%" stop-color="var(--coat-light)"/>
+        <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
+      </radialGradient>`,
+      head: `<path class="coat-light" d="M 400 92 Q 396 133 386 204 H 414 Q 404 133 400 92 Z"/>
+        <path class="coat-light" d="${window.SillySpecies.get('dog').rig.head.muzzlePath}"/>`,
+      body: '<ellipse fill="url(#coat-corgi-chest)" cx="400" cy="321" rx="65" ry="90"/>',
+    },
+    {
+      id: 'collie', name: '边牧', species: 'dog', furOnly: true,
+      art: {
+        ear: { x: 286.5, y: 72.5, width: 84 },
+        earBack: { x: 295, y: 64, width: 74 },
+        tail: { scale: 1.08 },
+      },
+      defs: `<radialGradient id="coat-collie-chest">
+        <stop offset="60%" stop-color="var(--coat-light)"/>
+        <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
+      </radialGradient>`,
+      head: `<path class="coat-light" d="M 400 92 Q 388 133 378 204 H 422 Q 412 133 400 92 Z"/>
+        <path class="coat-light" d="${window.SillySpecies.get('dog').rig.head.muzzlePath}"/>`,
+      body: '<ellipse fill="url(#coat-collie-chest)" cx="400" cy="321" rx="65" ry="90"/>',
+      backBody: '<path class="coat-light" d="M 310 240 Q 400 300 490 240 L 490 267 Q 400 330 310 267 Z"/>',
     },
   ].map((coat) => ({ ...coat, art: art(coat.species, coat.id, coat.art) }));
 

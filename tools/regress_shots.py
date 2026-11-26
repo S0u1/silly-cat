@@ -25,7 +25,7 @@ DEMOS = {
 }
 
 
-DOGS = ['tianyuan']
+DOGS = ['tianyuan', 'corgi', 'collie']
 DOG_DEMOS = {
     'paw-mouse': [0, 530, 1000, 2300, 4260, 4900],
     'tilt': [0, 900, 1850], 'pet': [0, 950],
