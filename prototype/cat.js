@@ -29,6 +29,7 @@
   const PAW_ON_KEY_DY = -8;   // 爪心略高于键心，让高亮的下半个键露出来
   const MOUSE_HOLD_MS = 1500;  // 鼠标停下这么久后尾巴收回身后
   const RELEASE_MS = 120;
+  const HOLD_RELAX_MS = 10000; // 同一颗键按住超过这么久，爪子先收回来（多半是抬起丢了）
   const EXCITE_COUNT = 6;     // 一秒内超过 6 次
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -266,7 +267,8 @@
       state: STATES.AWAKE,
       excited: false, excitedUntil: 0, keyTimes: [],
       sleepMs: sleepSeconds * 1000, lastInput: t0, sleepSince: 0,
-      pressed: new Map(),               // code -> 'L' | 'R'
+      pressed: new Map(),               // code -> 'L' | 'R'；画面上没画的键是 null（爪子不动）
+      heldSince: new Map(),             // code -> 按下时刻，只记爪子去按的键
       mouseSide, mouseActiveUntil: 0, mouseButtons: new Set(), mouseOff: { x: 0, y: 0 },
       pet: null,                        // { nx, ny }
       shakeStart: -1e9, nodStart: -1e9, lastKeyAt: -1e9, lookCode: null, lookSide: 'R',
@@ -335,8 +337,9 @@
     function targetOf(paw, now) {
       const forced = ask('forcedPawTarget', paw, now); // 发飙、罢工等：压过一切
       if (forced) return forced;
-      if (paw.held.length) return { id: paw.held[paw.held.length - 1], pressing: true };
-      if (now < paw.releaseAt && paw.lastCode) return { id: paw.lastCode, pressing: false };
+      const last = paw.held[paw.held.length - 1];
+      if (last && now - (S.heldSince.get(last) ?? now) < HOLD_RELAX_MS) return { id: last, pressing: true };
+      if (!last && now < paw.releaseAt && paw.lastCode) return { id: paw.lastCode, pressing: false };
       const soft = ask('softPawTarget', paw, now); // 抹嘴、趴着摊开：只在没按键时
       if (soft) return soft;
       return { id: 'rest', pressing: false };
@@ -371,18 +374,26 @@
         const now = performance.now();
         noteInput(now);
         if (S.pressed.has(code)) return;
-        const paw = choosePaw(code, now);
-        S.pressed.set(code, paw.side);
-        paw.held.push(code);
-        kb.setDown(code, true);
-        S.nodStart = now;
         S.lastKeyAt = now;
-        S.lookCode = code;
-        S.lookSide = paw.side;
         S.keyTimes.push(now);
         while (S.keyTimes.length && now - S.keyTimes[0] > 1000) S.keyTimes.shift();
         if (S.keyTimes.length > EXCITE_COUNT) S.excited = true;
         if (S.excited) S.excitedUntil = now + 1000;
+        if (!kb.has(code)) {
+          // 画面上没画这颗键（紧凑键盘的小键盘、方向键、F 键，以及 Fn 等）：爪子不去够，
+          // 只算在打字——照常不让猫睡着、累积疲劳。
+          S.pressed.set(code, null);
+          call('afterKeyDown', code, now);
+          return;
+        }
+        const paw = choosePaw(code, now);
+        S.pressed.set(code, paw.side);
+        S.heldSince.set(code, now);
+        paw.held.push(code);
+        kb.setDown(code, true);
+        S.nodStart = now;
+        S.lookCode = code;
+        S.lookSide = paw.side;
         const at = keyPoint(code, paw.side);
         const style = ask('keycapStyle', now) || (S.excited ? 'hot' : '');
         fx.spawn(displayKey(code, paw.side), at.x, at.y - pawOnKeyDy(), style, now);
@@ -391,10 +402,12 @@
       keyUp(code) {
         if (guard('keyUp', code)) return;
         const now = performance.now();
+        if (!S.pressed.has(code)) return;
         const side = S.pressed.get(code);
-        if (!side) return;
         noteInput(now);
         S.pressed.delete(code);
+        S.heldSince.delete(code);
+        if (!side) return; // 没画出来的键，爪子本来就没动
         const paw = paws[side];
         const i = paw.held.lastIndexOf(code);
         if (i >= 0) paw.held.splice(i, 1);
@@ -923,6 +936,7 @@
     function releaseKeys() {
       for (const code of S.pressed.keys()) kb.setDown(code, false);
       S.pressed.clear();
+      S.heldSince.clear();
       for (const p of [paws.L, paws.R]) { p.held.length = 0; p.releaseAt = 0; }
     }
     function releaseAll() { // 发飙时松开所有键和鼠标（画面上）

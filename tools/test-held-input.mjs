@@ -75,7 +75,7 @@ function fakeElement() {
 const unreadable = () => ({ keys: null, buttons: [] });
 const cursorAt = (x) => ({ x, y: 10, gx: x, gy: 10 });
 const pending = () => new Promise(() => {});
-const macKeyCodes = { F12: 111, KeyK: 40 };
+const macKeyCodes = { F12: 111, KeyK: 40, KeyJ: 38 };
 
 async function setup({ held = unreadable, cursor = () => null, clickThrough = false, modules = () => [] } = {}) {
   const clock = fakeClock();
@@ -175,7 +175,7 @@ async function setup({ held = unreadable, cursor = () => null, clickThrough = fa
     assertF12Held() {
       assert.ok(desktop.debug.held.includes('F12'));
       assert.ok(cat.debug.pressed.includes('F12'));
-      assert.equal(cat.debug.paws.right, 'F12');
+      assert.notEqual(cat.debug.paws.right, 'F12'); // 画面上没画 F12：爪子不去键盘边上够
     },
     assertF12Released() {
       assert.ok(!desktop.debug.held.includes('F12'));
@@ -237,7 +237,7 @@ test('鼠标穿透开启时按下身体不启动拖动，关闭后可以拖动',
 
 test('每秒移动鼠标时，漏掉抬起的 F12 仍会在连续不可读 5 秒后释放', async () => {
   const app = await setup({ cursor: (now) => cursorAt(Math.floor(now / 1000)) });
-  assert.equal(app.keyboard.has('F12'), false); // F12 使用键盘边缘落点
+  assert.equal(app.keyboard.has('F12'), false); // 紧凑键盘没画 F12
   app.key('F12', true);
   app.frame();
   await app.clock.advance(5999);
@@ -444,7 +444,10 @@ test('切换到 108 键时释放当前按键，新增键位按两只爪的物理
   frame();
   assert.equal(keyboard.center('F5'), null);
   cat.keyDown('F5');
-  assert.equal(cat.debug.paws.right, 'F5');
+  assert.equal(cat.debug.paws.right, 'rest', '没画出来的键，爪子不伸出去');
+  assert.ok(cat.debug.pressed.includes('F5'), '但仍算按着（不让猫睡着）');
+  cat.keyUp('F5');
+  assert.ok(!cat.debug.pressed.includes('F5'));
   assert.equal(window.SillySettings.sanitize({ keyboard: 'full' }).keyboard, 'full');
   for (const value of [undefined, 'giant', 108, null]) {
     assert.equal(window.SillySettings.sanitize({ keyboard: value }).keyboard, 'compact');
@@ -503,4 +506,22 @@ test('换键盘后拍爪立即按新布局判断触发距离、爪子够距和�
   await move(40, 354, 32);
   assert.equal(cat.debug.swat.side, null, '同一侧向距离超出紧凑布局的触发范围');
   assert.deepEqual(errors, []);
+});
+
+test('同一颗键按住超过 10 秒，爪子先收回来；再按别的键照常去按', async () => {
+  const app = await setup({ held: () => ({ keys: ['KeyK'], buttons: [] }) });
+  app.key('KeyK', true);
+  app.frame();
+  await app.clock.advance(9900);
+  assert.equal(app.cat.debug.paws.right, 'KeyK');
+  await app.clock.advance(200);
+  assert.equal(app.cat.debug.paws.right, 'rest');
+  assert.ok(app.cat.debug.pressed.includes('KeyK'), '键仍算按着，只是爪子不再一直伸着');
+  app.key('KeyJ', true);
+  assert.equal(app.cat.debug.paws.right, 'KeyJ');
+  app.key('KeyJ', false);
+  app.key('KeyK', false);
+  await app.clock.advance(121);
+  assert.equal(app.cat.debug.paws.right, 'rest');
+  assert.equal(app.cat.debug.pressed.length, 0);
 });
