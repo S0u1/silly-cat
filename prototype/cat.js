@@ -1,4 +1,4 @@
-// 猫：状态机 + 渲染。只消费抽象输入事件，不碰 DOM 键鼠事件。
+// 桌宠状态机和渲染。只消费抽象输入事件，不碰 DOM 键鼠事件。
 (function () {
   'use strict';
 
@@ -16,15 +16,12 @@
     'Tab', 'CapsLock', 'Escape', 'ShiftLeft', 'ControlLeft', 'AltLeft', 'MetaLeft',
   ]);
 
-  const EYE = { L: { cx: 345, cy: 178, r: 29 }, R: { cx: 455, cy: 178, r: 29 } };
+  const currentRig = () => window.SillySpecies.current.rig;
   const GAZE_HOLD_MS = 3000, GAZE_FALLOFF = 160;
   const GAZE_TAU = 60, GAZE_SLOW_TAU = 3 * GAZE_TAU;
-  // 肩部锚点贴在身体轮廓内侧，手臂基本竖直往下，让观众右侧的鞍状黑斑露出来
-  const SHOULDER = { L: { x: 446, y: 304 }, R: { x: 354, y: 304 } }; // 画面坐标
   // mouseSide 也按猫的视角：'right' = 猫的右手边 = 画面里键盘左侧
   const MOUSE_HOME = { right: { x: 104, y: 484 }, left: { x: 696, y: 484 } };
   const REST_KEY = { L: 'KeyG', R: 'KeyK' };
-  const PAW_ON_KEY_DY = -8;   // 爪心略高于键心，让高亮的下半个键露出来
   const MOUSE_HOLD_MS = 1500;  // 鼠标停下这么久后尾巴收回身后
   const RELEASE_MS = 120;
   const EXCITE_COUNT = 6;     // 一秒内超过 6 次
@@ -39,23 +36,10 @@
   const mq = !IS_WINDOWS && window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
   const reducedMotion = () => !!(mq && mq.matches);
   const SVG_NS = 'http://www.w3.org/2000/svg';
-  // 头部轮廓；b > 0 时两颊向外鼓（生气鼓腮帮），填色、裁切和描边用同一条路径
-  function headPathD(b) {
-    const r = (v) => Math.round(v * 10) / 10;
-    return `M 270 176 C 268 98, 328 70, 400 70 C 472 70, 532 98, 530 176 ` +
-      `C ${r(531 + b * 1.25)} ${r(236 + b * 0.5)}, ${r(478 + b * 0.5)} ${r(276 + b * 0.2)}, 400 276 ` +
-      `C ${r(322 - b * 0.5)} ${r(276 + b * 0.2)}, ${r(269 - b * 1.25)} ${r(236 + b * 0.5)}, 270 176 Z`;
-  }
-
   // ---------- 尾巴几何 ----------
   // 尾巴画成一条有粗细的实心带子：沿中线取点，按宽度往两侧偏移，尾尖封半圆；白尾尖是同一条中线最后一段、往里缩一圈描边宽度的带子。
-  // 平时的中线 = 原来那条贝塞尔（绕 322,372 摆动）；操作鼠标时的中线按鼠标位置现算，两者按伸出进度逐点插值。
-  const TAIL_PIVOT = { x: 322, y: 372 };
-  const TAIL_N = 34;                 // 中线取点数
-  const TAIL_EXTEND_MS = 380, TAIL_RETRACT_MS = 520;
-  const TAIL_TIP_LEN = 30;           // 白尾尖沿中线的长度（不含两端的半圆）
-  const TAIL_INSET = 2.3;            // 白尾尖往里缩的量（≈ 描边宽度的一半），让黑色描边整圈露出来
-  const tailWidth = (s, press) => (13.2 - 2.6 * s * s) * (1 + 0.14 * press * Math.max(0, (s - 0.7) / 0.3));
+  const idleTailCurves = new WeakMap();
+
   function cubicPts(c, n) {
     const out = [];
     for (let i = 0; i <= n; i++) {
@@ -91,19 +75,22 @@
     out.push(ctrl[ctrl.length - 1]);
     return out;
   }
-  const TAIL_IDLE = resample([
-    ...cubicPts([322, 370, 272, 372, 222, 374, 198, 350], 30),
-    ...cubicPts([198, 350, 182, 334, 184, 314, 198, 306], 14).slice(1),
-  ], TAIL_N);
+  function idleTail(tail) {
+    if (!idleTailCurves.has(tail)) {
+      const points = tail.idleCurves.flatMap(({ points, steps }, i) => cubicPts(points, steps).slice(i ? 1 : 0));
+      idleTailCurves.set(tail, resample(points, tail.samples));
+    }
+    return idleTailCurves.get(tail);
+  }
   function pathLen(pts) { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); return L; }
   // 中线 pts（s0..s1 是这段在整条尾巴上的位置，用来取宽度）-> 闭合轮廓路径；roundStart：起点也封半圆（白尾尖靠身体那头）
-  function ribbonD(pts, s0, s1, inset, press, roundStart, roundEnd = true) {
+  function ribbonD(halfWidth, pts, s0, s1, inset, press, roundStart, roundEnd = true) {
     const n = pts.length, L = [], R = [], C = 7;
     let n0 = null, t0 = null, nl = null, tl = null, h0 = 0, hl = 0;
     for (let i = 0; i < n; i++) {
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
       const len = Math.hypot(b.x - a.x, b.y - a.y) || 1, tx = (b.x - a.x) / len, ty = (b.y - a.y) / len;
-      const h = tailWidth(s0 + (s1 - s0) * i / (n - 1), press) - inset;
+      const h = halfWidth(s0 + (s1 - s0) * i / (n - 1), press) - inset;
       L.push({ x: pts[i].x - ty * h, y: pts[i].y + tx * h });
       R.push({ x: pts[i].x + ty * h, y: pts[i].y - tx * h });
       if (i === 0) { n0 = { x: -ty, y: tx }; t0 = { x: tx, y: ty }; h0 = h; }
@@ -129,12 +116,12 @@
     for (let i = 0; i < P.length; i++) { const p = P[i], q = P[(i + 1) % P.length]; d += ` Q ${f1(p.x)} ${f1(p.y)} ${m(p, q)}`; }
     return d + ' Z';
   }
-  function tipPts(pts, total) { // 中线最后 TAIL_TIP_LEN 的那一段
+  function tipPts(pts, total, tipLength) { // 中线最靠近尾尖的一段
     let acc = total;
     for (let i = pts.length - 1; i > 0; i--) {
       const sl = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
-      if (total - (acc - sl) >= TAIL_TIP_LEN) {
-        const t = (TAIL_TIP_LEN - (total - acc)) / (sl || 1);
+      if (total - (acc - sl) >= tipLength) {
+        const t = (tipLength - (total - acc)) / (sl || 1);
         const first = { x: pts[i].x + (pts[i - 1].x - pts[i].x) * t, y: pts[i].y + (pts[i - 1].y - pts[i].y) * t };
         return resample([first, ...pts.slice(i)], 8);
       }
@@ -233,11 +220,16 @@
       if (!n) throw new Error('missing #' + id);
       return n;
     };
-    const eyeEls = (s) => ({
-      open: $('eye-' + s + '-open'), closed: $('eye-' + s + '-closed'), happy: $('eye-' + s + '-happy'),
-      iris: $('iris-' + s), pupil: $('pupil-' + s), shine: $('shine-' + s),
-      lid: $('lid-' + s), lidLine: $('lidline-' + s),
-    });
+    const eyeEls = (s) => {
+      const open = $('eye-' + s + '-open');
+      return {
+        open, closed: $('eye-' + s + '-closed'), happy: $('eye-' + s + '-happy'),
+        sclera: open.querySelector('.sclera'), ring: open.querySelector('.eye-ring'),
+        clip: $('clip-eye-' + s).querySelector('circle'),
+        iris: $('iris-' + s), pupil: $('pupil-' + s), shine: $('shine-' + s),
+        lid: $('lid-' + s), lidLine: $('lidline-' + s),
+      };
+    };
     const el = {
       head: $('cat-head'), body: $('cat-body'),
       // 尾巴画两份：#tail 在身体后面（整条），#tail-front 在鼠标上面（遮罩掉身体那一块，只露出绕到前面的部分）
@@ -258,6 +250,9 @@
     const fx = createKeycapFx($('fx-layer'));
 
     const t0 = performance.now();
+    const initialRig = currentRig();
+    const initialRotation = initialRig.head.restRotation;
+    const initialGazeY = initialRig.eyes.gaze.restY;
     const S = {
       state: STATES.AWAKE,
       excited: false, excitedUntil: 0, keyTimes: [],
@@ -267,13 +262,15 @@
       pet: null,                        // { nx, ny }
       shakeStart: -1e9, nodStart: -1e9, lastKeyAt: -1e9, lookCode: null, lookSide: 'R',
       pointer: null, followingPointer: false, lastPointerMove: t0,
-      lid: 0.18, pupil: { L: { x: 0, y: 1 }, R: { x: 0, y: 1 } }, pupilR: 13,
+      lid: 0.18, pupil: { L: { x: 0, y: initialGazeY }, R: { x: 0, y: initialGazeY } },
+      pupilR: initialRig.eyes.pupil.rest,
       nextBlink: t0 + 3000 + Math.random() * 3000, blinkUntil: 0,
       twitch: { ear: null, start: -1e9 }, nextTwitch: t0 + 5000 + Math.random() * 5000,
       tailPhase: 0, tailAngle: 0, eyeMode: null,
       tailReach: 0, tailWant: false, tailSide: mouseSide, tailLag: null, tailPress: 0, tailPressX: 0, tailTapAt: -1e9, tailFrontOn: null,
-      headBaseRot: -4, headBaseX: 0, headBaseY: 0,
-      headTf: { tx: 0, ty: 0, rot: -4, sx: 1, sy: 1 }, catHidden: false, cheek: 0, cheekDrawn: -1,
+      headBaseRot: initialRotation, headBaseX: 0, headBaseY: 0,
+      headTf: { tx: 0, ty: 0, rot: initialRotation, sx: 1, sy: 1, pivot: initialRig.head.pivot },
+      catHidden: false, cheek: 0, cheekDrawn: -1,
     };
 
     // ---------- 扩展钩子 ----------
@@ -295,7 +292,7 @@
     }
     function restPoint(side) {
       const c = kb.center(REST_KEY[side]);
-      return { x: c.x, y: c.y - 14 };
+      return { x: c.x, y: c.y + currentRig().paws.restY };
     }
     const paws = { L: makePaw('L'), R: makePaw('R') };
     // 鼠标那一侧的爪：只在发飙抓鼠标、修理时用；平时操作鼠标的是尾巴，两只爪都留在键盘上
@@ -335,7 +332,7 @@
 
     function keyPoint(code, side) {
       const c = kb.center(code);
-      if (c) return { x: c.x, y: c.y + PAW_ON_KEY_DY };
+      if (c) return { x: c.x, y: c.y + currentRig().paws.keyY };
       return kb.edgePoint(code, side);
     }
 
@@ -370,9 +367,11 @@
         while (S.keyTimes.length && now - S.keyTimes[0] > 1000) S.keyTimes.shift();
         if (S.keyTimes.length > EXCITE_COUNT) S.excited = true;
         if (S.excited) S.excitedUntil = now + 1000;
-        const at = keyPoint(code, paw.side);
+        const center = kb.center(code);
+        const at = center || kb.edgePoint(code, paw.side);
         const style = ask('keycapStyle', now) || (S.excited ? 'hot' : '');
-        fx.spawn(keycapText(code, paw.side), at.x, at.y - PAW_ON_KEY_DY, style, now);
+        // 可见键帽在键心出字，画面外的键沿用键盘边缘上方的留白。
+        fx.spawn(keycapText(code, paw.side), at.x, at.y + (center ? 0 : 8), style, now);
         call('afterKeyDown', code, now);
       },
       keyUp(code) {
@@ -494,10 +493,10 @@
       S.tailTapAt = t >= TD.up ? now - (t - TD.up) : -1e9;
     }
     // 伸出进度（0 = 收在身后，1 = 搭在鼠标上）：演示时直接由时间轴算出
-    function demoTailReach(t) {
+    function demoTailReach(t, { extendMs, retractMs }) {
       if (t < TD.move0) return 0;
-      if (t < TD.off) return Math.min(1, (t - TD.move0) / TAIL_EXTEND_MS);
-      return Math.max(0, 1 - (t - TD.off) / TAIL_RETRACT_MS);
+      if (t < TD.off) return Math.min(1, (t - TD.move0) / extendMs);
+      return Math.max(0, 1 - (t - TD.off) / retractMs);
     }
 
     function update(now) {
@@ -514,7 +513,9 @@
       }
     }
 
-    function renderPaws(now, dt, P) {
+    function renderPaws(now, dt, P, rig) {
+      const { shoulders, pressScale, lift, wristY, bend: curve } = rig.paws;
+      const pivot = rig.body.pivot;
       for (const paw of [paws.L, paws.R]) {
         const t = targetOf(paw, now);
         const goal = t.x !== undefined ? { x: t.x, y: t.y } : pointFor(t.id, paw);
@@ -525,23 +526,24 @@
         paw.press = approach(paw.press, t.pressing && dist < 6 ? 1 : 0, dt, 16);
         paw.lift = approach(paw.lift, dist > 10 ? 1 : 0, dt, 30);
 
-        const sx = 1 + (0.13 + P.pressBoost) * paw.press + 0.06 * paw.lift;
-        const sy = 1 - (0.17 + P.pressBoost) * paw.press + 0.06 * paw.lift;
-        const py = paw.y - 4 * paw.lift;
-        paw.els.paw.setAttribute('transform', `${turnTf(P)}translate(${f1(paw.x)} ${f1(py)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})`);
+        const sx = 1 + (pressScale.x + P.pressBoost) * paw.press + lift.scale * paw.lift;
+        const sy = 1 - (pressScale.y + P.pressBoost) * paw.press + lift.scale * paw.lift;
+        const py = paw.y - lift.y * paw.lift;
+        paw.els.paw.setAttribute('transform', `${turnTf(P, rig.turnX)}translate(${f1(paw.x)} ${f1(py)}) scale(${sx.toFixed(3)} ${sy.toFixed(3)})`);
 
         // 手臂：肩部锚点 -> 爪背的二次曲线，距离越近弯得越多
-        // 肩部锚点跟着身体的缩放走（身体以底部 400,410 为基准缩放）
+        // 肩部锚点跟着身体的缩放走
+        const shoulder = shoulders[paw.side];
         const sh = {
-          x: 400 + (SHOULDER[paw.side].x - 400) * P.bodySX + P.bodyX,
-          y: 410 + (SHOULDER[paw.side].y - 410) * P.bodySY + P.lift + P.bodyY,
+          x: pivot.x + (shoulder.x - pivot.x) * P.bodySX + P.bodyX,
+          y: pivot.y + (shoulder.y - pivot.y) * P.bodySY + P.lift + P.bodyY,
         };
-        const ex = paw.x, ey = py - 8;
+        const ex = paw.x, ey = py + wristY;
         const vx = ex - sh.x, vy = ey - sh.y, len = Math.hypot(vx, vy) || 1;
         let nx = -vy / len, ny = vx / len;
         const outward = paw.side === 'L' ? 1 : -1; // 猫的左爪在观众右侧
         if (nx * outward < 0) { nx = -nx; ny = -ny; }
-        const bend = clamp(70 - len * 0.25, 8, 45);
+        const bend = clamp(curve.base - len * curve.falloff, curve.min, curve.max);
         const cx = sh.x + vx * 0.5 + nx * bend, cy = sh.y + vy * 0.5 + ny * bend;
         const d = `M ${f1(sh.x)} ${f1(sh.y)} Q ${f1(cx)} ${f1(cy)} ${f1(ex)} ${f1(ey)}`;
         SillyArt.arm(paw.artSlot, sh, cx, cy, ex, ey);
@@ -549,19 +551,21 @@
         paw.els.armFill.setAttribute('d', d);
         paw.els.armStripes.setAttribute('d', d);
       }
-      const at = turnTf(P);
+      const at = turnTf(P, rig.turnX);
       el.armG.l.setAttribute('transform', at);
       el.armG.r.setAttribute('transform', at);
     }
 
-    function renderHead(now, dt, rm, P) {
+    let drawnHead = null;
+    function renderHead(now, dt, rm, P, rig) {
+      const head = rig.head;
       const asleep = S.state === STATES.ASLEEP;
-      let rotGoal = -4, xGoal = 0, yGoal = 0;
-      if (asleep) { rotGoal -= 3; yGoal += 8; }
+      let rotGoal = head.restRotation, xGoal = 0, yGoal = 0;
+      if (asleep) { rotGoal += head.sleepRotation; yGoal += head.sleepY; }
       if (S.pet) {
-        rotGoal += S.pet.nx * 6 + (rm ? 0 : 2.5 * Math.sin(now / 90));
-        xGoal += S.pet.nx * 7;
-        yGoal += S.pet.ny * 2;
+        rotGoal += S.pet.nx * head.pet.rotation + (rm ? 0 : head.pet.wobble * Math.sin(now / 90));
+        xGoal += S.pet.nx * head.pet.x;
+        yGoal += S.pet.ny * head.pet.y;
       }
       S.headBaseRot = approach(S.headBaseRot, rotGoal, dt, asleep ? 500 : 70);
       S.headBaseX = approach(S.headBaseX, xGoal, dt, 70);
@@ -569,26 +573,55 @@
 
       let rot = S.headBaseRot + P.headRot, tx = S.headBaseX + P.headX, ty = S.headBaseY + P.headY + P.lift;
       const tn = now - S.nodStart;
-      if (tn < 140) ty += 2 * Math.sin(Math.PI * tn / 140);
+      if (tn < 140) ty += head.nod * Math.sin(Math.PI * tn / 140);
       const ts = now - S.shakeStart;
-      if (ts >= 0 && ts < 420) rot += 6 * Math.sin(4 * Math.PI * ts / 420); // 甩两下 ±6°
-      if (asleep && !rm) ty += 1.5 * P.breath * Math.sin(now * 2 * Math.PI / 3200);
+      if (ts >= 0 && ts < 420) rot += head.shake * Math.sin(4 * Math.PI * ts / 420);
+      if (asleep && !rm) ty += head.breathY * P.breath * Math.sin(now * 2 * Math.PI / 3200);
       const hsx = P.headSX, hsy = P.headSY;
-      S.headTf = { tx, ty, rot, sx: hsx, sy: hsy };
+      const { x, y } = head.pivot;
+      S.headTf = { tx, ty, rot, sx: hsx, sy: hsy, pivot: head.pivot };
       // 鼓腮帮：改头部轮廓本身
       S.cheek = approach(S.cheek, P.cheek, dt, 90);
       SillyArt.cheek(S.cheek);
-      if (Math.abs(S.cheek - S.cheekDrawn) > 0.05) {
+      if (drawnHead !== head || Math.abs(S.cheek - S.cheekDrawn) > 0.05) {
+        drawnHead = head;
         S.cheekDrawn = S.cheek;
-        const d = headPathD(S.cheek);
+        const d = head.path(S.cheek);
         for (const n of el.headShape) n.setAttribute('d', d);
         if (!SillyCoats.current().art?.headPath) el.headClip.setAttribute('d', d);
       }
-      const hs = hsx !== 1 || hsy !== 1 ? ` translate(400 262) scale(${hsx.toFixed(4)} ${hsy.toFixed(4)}) translate(-400 -262)` : '';
-      el.head.setAttribute('transform', `${turnTf(P)}translate(${f1(tx)} ${f1(ty)}) rotate(${rot.toFixed(2)} 400 262)${hs}`);
+      const hs = hsx !== 1 || hsy !== 1 ? ` translate(${x} ${y}) scale(${hsx.toFixed(4)} ${hsy.toFixed(4)}) translate(${-x} ${-y})` : '';
+      el.head.setAttribute('transform', `${turnTf(P, rig.turnX)}translate(${f1(tx)} ${f1(ty)}) rotate(${rot.toFixed(2)} ${x} ${y})${hs}`);
     }
 
-    function renderEyes(now, dt, P) {
+    let drawnEyes = null;
+    function applyEyeGeometry(eyes) {
+      for (const s of ['L', 'R']) {
+        const { x, y } = eyes.centers[s], e = el.eye[s];
+        const { radius, lidPadding } = eyes;
+        for (const n of [e.sclera, e.ring, e.clip]) {
+          n.setAttribute('cx', x); n.setAttribute('cy', y); n.setAttribute('r', radius);
+        }
+        e.iris.setAttribute('r', eyes.irisRadius);
+        e.shine.setAttribute('r', eyes.shine.radius);
+        const left = x - radius - lidPadding, right = x + radius + lidPadding;
+        e.lid.setAttribute('x', left);
+        e.lid.setAttribute('y', y - radius - lidPadding);
+        e.lid.setAttribute('width', right - left);
+        e.lidLine.setAttribute('x1', left);
+        e.lidLine.setAttribute('x2', right);
+        for (const [mode, { halfWidth, edgeY, controlY }] of Object.entries(eyes.arcs)) {
+          e[mode].setAttribute('d', `M ${x - halfWidth} ${y + edgeY} Q ${x} ${y + controlY} ${x + halfWidth} ${y + edgeY}`);
+        }
+        S.pupil[s].x = 0;
+        S.pupil[s].y = eyes.gaze.restY;
+      }
+      S.pupilR = eyes.pupil.rest;
+      drawnEyes = eyes;
+    }
+
+    function renderEyes(now, dt, P, eyes) {
+      if (drawnEyes !== eyes) applyEyeGeometry(eyes);
       const mode = S.state === STATES.ASLEEP || P.eyesClosed ? 'closed' : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
       if (mode !== S.eyeMode) {
         S.eyeMode = mode;
@@ -606,14 +639,16 @@
       if (now < S.blinkUntil) lidGoal = 1;
       S.lid = approach(S.lid, lidGoal, dt, now < S.blinkUntil ? 18 : 60);
 
-      let lx = 0, ly = 1, tau = GAZE_TAU, pointerTarget = null;
+      const { gaze, pupil, centers, irisTravel, shine, radius, lidPadding } = eyes;
+      const eyeX = (centers.L.x + centers.R.x) / 2, eyeY = (centers.L.y + centers.R.y) / 2;
+      let lx = 0, ly = gaze.restY, tau = GAZE_TAU, pointerTarget = null;
       if (P.look) {
         // 扩展模块按时间轴控制转眼的过渡。
-        lx = clamp((P.look.x - 400) / 300, -1, 1) * 8;
-        ly = 1 + clamp((P.look.y - 178) / 520, -1, 1) * 8;
+        lx = clamp((P.look.x - eyeX) / 300, -1, 1) * gaze.max;
+        ly = gaze.restY + clamp((P.look.y - eyeY) / 520, -1, 1) * gaze.max;
       } else if (now - S.lastKeyAt < 1200 && S.lookCode) {
         const p = keyPoint(S.lookCode, S.lookSide);
-        lx = clamp((p.x - 400) / 220, -1, 1) * 5; ly = 4;
+        lx = clamp((p.x - eyeX) / 220, -1, 1) * gaze.keyX; ly = gaze.keyY;
       } else if (!P.hideCat && eyesFollow && S.pointer && now < S.pointer.at + GAZE_HOLD_MS) {
         // 头部的屏幕矩阵同时包含场景留边和本帧写入的头部姿态。
         const headToScreen = el.head.getScreenCTM();
@@ -622,21 +657,21 @@
           tau = S.state === STATES.DROWSY ? GAZE_SLOW_TAU : GAZE_TAU;
         }
       } else if (!eyesFollow && now < S.mouseActiveUntil) {
-        lx = clamp((mousePoint().x - 400) / 220, -1, 1) * 5; ly = 4;
+        lx = clamp((mousePoint().x - eyeX) / 220, -1, 1) * gaze.keyX; ly = gaze.keyY;
       } else if (S.followingPointer) {
         tau = GAZE_SLOW_TAU;
       }
       // 回正期间延续慢速，直到下一个明确的目标接管。
       if (pointerTarget || tau !== GAZE_SLOW_TAU) S.followingPointer = !!pointerTarget;
-      S.pupilR = approach(S.pupilR, S.excited ? 18 : 13, dt, 80);
-      // 瞳孔变大时，最大偏移随半径从 8 缩到 6，给虹膜留出边缘。
-      const maxGaze = 8 - (S.pupilR - 13) * 0.4;
+      S.pupilR = approach(S.pupilR, S.excited ? pupil.excited : pupil.rest, dt, 80);
+      // 瞳孔变大时，缩小最大偏移，给虹膜留出边缘。
+      const maxGaze = gaze.max - (S.pupilR - pupil.rest) * gaze.taper;
 
       for (const s of ['L', 'R']) {
-        const g = EYE[s], e = el.eye[s], offset = S.pupil[s];
+        const { x: cx, y: cy } = centers[s], e = el.eye[s], offset = S.pupil[s];
         let x = lx, y = ly;
         if (pointerTarget) {
-          const dx = pointerTarget.x - g.cx, dy = pointerTarget.y - g.cy;
+          const dx = pointerTarget.x - cx, dy = pointerTarget.y - cy;
           const scale = maxGaze / Math.max(GAZE_FALLOFF, Math.hypot(dx, dy));
           x = dx * scale; y = dy * scale;
         }
@@ -647,44 +682,46 @@
           offset.x *= scale;
           offset.y *= scale;
         }
-        const px = g.cx + offset.x, py = g.cy + offset.y;
-        e.iris.setAttribute('cx', f1(g.cx + offset.x * 0.6));
-        e.iris.setAttribute('cy', f1(g.cy + offset.y * 0.6));
+        const px = cx + offset.x, py = cy + offset.y;
+        e.iris.setAttribute('cx', f1(cx + offset.x * irisTravel));
+        e.iris.setAttribute('cy', f1(cy + offset.y * irisTravel));
         e.pupil.setAttribute('cx', f1(px));
         e.pupil.setAttribute('cy', f1(py));
         e.pupil.setAttribute('r', f1(S.pupilR));
-        e.shine.setAttribute('cx', f1(px - S.pupilR * 0.42));
-        e.shine.setAttribute('cy', f1(py - S.pupilR * 0.42));
-        const h = S.lid * (g.r * 2 + 4);
+        e.shine.setAttribute('cx', f1(px - S.pupilR * shine.offset));
+        e.shine.setAttribute('cy', f1(py - S.pupilR * shine.offset));
+        const h = S.lid * (radius * 2 + lidPadding * 2);
         e.lid.setAttribute('height', f1(h));
-        const ly2 = g.cy - g.r - 2 + h;
+        const ly2 = cy - radius - lidPadding + h;
         e.lidLine.setAttribute('y1', f1(ly2));
         e.lidLine.setAttribute('y2', f1(ly2));
         e.lidLine.style.display = S.lid > 0.03 ? '' : 'none';
       }
     }
 
-    function renderEars(now, P) {
+    function renderEars(now, P, { pivots, twitch }) {
       for (const s of ['L', 'R']) {
         let a = 0;
         if (S.twitch.ear === s) {
           const t = now - S.twitch.start;
-          if (t < 260) a = 14 * Math.sin(2 * Math.PI * t / 130) * (1 - t / 260);
+          if (t < twitch.duration) a = twitch.degrees * Math.sin(2 * Math.PI * t / twitch.period) * (1 - t / twitch.duration);
         }
         a += P.earDroop; // 耷拉：两只耳朵都往外侧倒
         if (s === 'L') a = -a;
-        const pivot = s === 'L' ? '322 110' : '478 110';
-        el.ear[s].setAttribute('transform', `rotate(${a.toFixed(2)} ${pivot})`);
+        const { x, y } = pivots[s];
+        el.ear[s].setAttribute('transform', `rotate(${a.toFixed(2)} ${x} ${y})`);
       }
     }
 
-    function renderTail(now, dt, rm, P) {
-      // 平时的摆动（和原来一样）
-      let amp = 9, speed = 0.003, base = 0, tau = 60;
-      if (S.state === STATES.ASLEEP) { amp = 0; speed = 0; base = -22; tau = 500; }
-      else if (S.excited) { amp = 16; speed = 0.014; }
-      else if (rm) { amp = 0; speed = 0; }
-      else if (S.state === STATES.DROWSY) { amp = 5; speed = 0.0015; }
+    function renderTail(now, dt, rm, P, rig) {
+      const tail = rig.tail;
+      const { pivot, wag, mouse, halfWidth, tipLength, markingInset } = tail;
+      let motion = wag.awake;
+      if (S.state === STATES.ASLEEP) motion = wag.asleep;
+      else if (S.excited) motion = wag.excited;
+      else if (rm) motion = null;
+      else if (S.state === STATES.DROWSY) motion = wag.drowsy;
+      let { amp = 0, speed = 0, base = 0, tau = wag.tau } = motion || {};
       if (P.tailAmp !== null && S.state !== STATES.ASLEEP) { amp = P.tailAmp; speed = P.tailSpeed; }
       S.tailPhase += dt * speed;
       S.tailAngle = approach(S.tailAngle, base + amp * Math.sin(S.tailPhase), dt, tau);
@@ -693,27 +730,28 @@
       const want = tailWanted(now) && !P.mouseAbs && !P.mouseHidden && !P.hideCat;
       S.tailWant = want;
       if (S.tailReach === 0) S.tailSide = S.mouseSide; // 只在收好时换边，伸到一半换边不会跳
-      if (demoTail && !demoTail.done) S.tailReach = demoTailReach(demoTailTime(now));
+      if (demoTail && !demoTail.done) S.tailReach = demoTailReach(demoTailTime(now), mouse);
       else if (rm) S.tailReach = want ? 1 : 0;
-      else S.tailReach = want ? Math.min(1, S.tailReach + dt / TAIL_EXTEND_MS) : Math.max(0, S.tailReach - dt / TAIL_RETRACT_MS);
+      else S.tailReach = want ? Math.min(1, S.tailReach + dt / mouse.extendMs) : Math.max(0, S.tailReach - dt / mouse.retractMs);
       const r = S.tailReach;
 
       // 平时的中线：绕尾根转 tailAngle，再跟着身体平移
       const a = S.tailAngle * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
       const bx = P.bodyX, by = P.lift + P.bodyY;
-      const idle = TAIL_IDLE.map((p, i) => {
-        const vx = p.x - TAIL_PIVOT.x, vy = p.y - TAIL_PIVOT.y;
-        const lift = P.tailTipLift * (1 - r) * (i / (TAIL_N - 1)) ** 3;
-        return { x: TAIL_PIVOT.x + vx * ca - vy * sa + bx, y: TAIL_PIVOT.y + vx * sa + vy * ca + by - lift };
+      const idle = idleTail(tail).map((p, i) => {
+        const vx = p.x - pivot.x, vy = p.y - pivot.y;
+        const lift = P.tailTipLift * (1 - r) * (i / (tail.samples - 1)) ** 3;
+        return { x: pivot.x + vx * ca - vy * sa + bx, y: pivot.y + vx * sa + vy * ca + by - lift };
       });
 
       // 尾尖按键：按下时压下去、挪到按的那颗键上并略微压扁；松开时弹一下
       const btn = S.mouseButtons.has(0) ? 0 : S.mouseButtons.has(2) ? 2 : null;
-      S.tailPress = rm ? (btn !== null ? 1 : 0) : approach(S.tailPress, btn !== null ? 1 : 0, dt, 22);
-      // 猫视角的左键在画面右边（鼠标朝向猫）
-      S.tailPressX = approach(S.tailPressX, btn === 0 ? 9 : btn === 2 ? -9 : S.tailPressX, dt, 22);
+      S.tailPress = rm ? (btn !== null ? 1 : 0) : approach(S.tailPress, btn !== null ? 1 : 0, dt, mouse.pressMs);
+      // 鼠标朝向角色，左键在画面右边
+      S.tailPressX = approach(S.tailPressX, btn === 0 ? mouse.pressX : btn === 2 ? -mouse.pressX : S.tailPressX, dt, mouse.pressMs);
       const tap = now - S.tailTapAt;
-      const bounce = !rm && tap >= 0 && tap < 240 ? 6 * Math.sin(Math.PI * tap / 240) : 0;
+      const { duration, height } = mouse.bounce;
+      const bounce = !rm && tap >= 0 && tap < duration ? height * Math.sin(Math.PI * tap / duration) : 0;
 
       let pts = idle;
       if (r > 0) {
@@ -721,37 +759,30 @@
         const m = { x: H.x + S.mouseOff.x + P.mouseX, y: H.y + S.mouseOff.y + P.mouseY };
         // 尾巴中段比尾尖慢半拍跟上鼠标，曲线跟着鼠标的移动轻轻弯
         if (!S.tailLag || rm) S.tailLag = { x: m.x, y: m.y };
-        else { S.tailLag.x = approach(S.tailLag.x, m.x, dt, 110); S.tailLag.y = approach(S.tailLag.y, m.y, dt, 110); }
-        const g = S.tailLag;
-        const d = H.x < 400 ? 1 : -1;             // 从鼠标指向身体的横向方向
-        const X = (x) => (d > 0 ? x : 800 - x);    // 固定点按鼠标所在侧镜像
-        const sway = rm ? 0 : 2.2 * Math.sin(now / 640);
-        const ctrl = [
-          { x: X(322) + bx, y: 370 + by },                                   // 尾根，藏在身体后面
-          { x: X(290) + bx, y: 366 + by },                                   // 从身体侧面绕出来
-          { x: X(240) + bx * 0.5, y: 352 + by * 0.5 + sway * 0.5 },          // 往外拱起一点
-          { x: g.x + d * 84, y: g.y - 128 + sway },                          // 越过键盘左上角
-          { x: g.x + d * 38, y: g.y - 94 + sway * 0.6 },
-          { x: g.x + d * 12, y: g.y - 46 },                                  // 从掌托那头搭上鼠标
-          { x: m.x + 2 + S.tailPressX * S.tailPress, y: m.y + 4 + 5 * S.tailPress - bounce }, // 尾尖落在两颗键中间
-        ];
-        const reach = resample(catmull(ctrl, 10), TAIL_N);
+        else { S.tailLag.x = approach(S.tailLag.x, m.x, dt, mouse.lagMs); S.tailLag.y = approach(S.tailLag.y, m.y, dt, mouse.lagMs); }
+        const direction = H.x < rig.turnX ? 1 : -1;                     // 从鼠标指向身体的横向方向
+        const mirrorX = (x) => (direction > 0 ? x : 2 * rig.turnX - x);    // 固定点按鼠标所在侧镜像
+        const sway = rm ? 0 : mouse.sway.height * Math.sin(now / mouse.sway.period);
+        const ctrl = mouse.points({
+          bx, by, mirrorX, direction, lag: S.tailLag, mouse: m, sway, pressX: S.tailPressX, press: S.tailPress, bounce,
+        });
+        const reach = resample(catmull(ctrl, 10), tail.samples);
         // 逐点插值：伸出时尾根先动、尾尖最后到；收回时尾尖先离开鼠标。中间整体往上抬一段，像把尾巴甩过来
         pts = idle.map((p, i) => {
-          const s = i / (TAIL_N - 1);
+          const s = i / (tail.samples - 1);
           const e0 = clamp(r * 1.35 - 0.35 * s, 0, 1), e = e0 < 0.5 ? 2 * e0 * e0 : 1 - 2 * (1 - e0) * (1 - e0);
           const q = reach[i];
-          return { x: p.x + (q.x - p.x) * e, y: p.y + (q.y - p.y) * e - 42 * Math.sin(Math.PI * e) * s };
+          return { x: p.x + (q.x - p.x) * e, y: p.y + (q.y - p.y) * e - mouse.reachLift * Math.sin(Math.PI * e) * s };
         });
         // 过渡中把中线抹顺几遍：平时的尾尖小弯钩和搭鼠标的走向插值时会挤出很急的弯，轮廓内侧会打结
         const k = 0.5 * Math.sin(Math.PI * Math.min(1, r));
         for (let it = 0; k > 0.01 && it < 4; it++) {
           const prev = pts.map((p) => ({ x: p.x, y: p.y }));
-          for (let i = 1; i < TAIL_N - 1; i++) {
+          for (let i = 1; i < tail.samples - 1; i++) {
             pts[i].x += k * ((prev[i - 1].x + prev[i + 1].x) / 2 - prev[i].x);
             pts[i].y += k * ((prev[i - 1].y + prev[i + 1].y) / 2 - prev[i].y);
           }
-          const n = TAIL_N - 1; // 尾尖顺着前两点的方向延伸
+          const n = tail.samples - 1; // 尾尖顺着前两点的方向延伸
           pts[n].x += k * (2 * prev[n - 1].x - prev[n - 2].x - prev[n].x);
           pts[n].y += k * (2 * prev[n - 1].y - prev[n - 2].y - prev[n].y);
         }
@@ -759,24 +790,24 @@
 
       const press = S.tailPress * r;
       if (SillyArt.tailSegments) {
-        SillyArt.tail(resample(pts, SillyArt.tailSegments + 1), s => 2 * tailWidth(s, press));
+        SillyArt.tail(resample(pts, SillyArt.tailSegments + 1), s => 2 * halfWidth(s, press));
       }
-      const bodyD = ribbonD(pts, 0, 1, 0, press, false);
+      const bodyD = ribbonD(halfWidth, pts, 0, 1, 0, press, false);
       for (const n of el.tail.body) n.setAttribute('d', bodyD);
       const markings = window.SillyCoats?.current()?.tail;
       let tipD;
       if (markings) {
         const section = ([s0, s1], roundEnd) =>
-          ribbonD(resample(pts, 8, s0, s1), s0, s1, TAIL_INSET, press, false, roundEnd);
+          ribbonD(halfWidth, resample(pts, 8, s0, s1), s0, s1, markingInset, press, false, roundEnd);
         const ringsD = markings.rings.map((range) => section(range, false)).join(' ');
         for (const n of el.tail.rings) n.setAttribute('d', ringsD);
         tipD = section(markings.tip, true);
       } else {
         const L = pathLen(pts);
-        tipD = ribbonD(tipPts(pts, L), 1 - TAIL_TIP_LEN / L, 1, TAIL_INSET, press, true);
+        tipD = ribbonD(halfWidth, tipPts(pts, L, tipLength), 1 - tipLength / L, 1, markingInset, press, true);
       }
       for (const n of el.tail.tip) n.setAttribute('d', tipD);
-      const tf = turnTf(P);
+      const tf = turnTf(P, rig.turnX);
       el.tail.back.setAttribute('transform', tf);
       el.tail.front.setAttribute('transform', tf);
       // 前面那一份只在伸出来时画（不用半透明淡入：叠在键盘上会显出一块灰）。平时尾巴根部被键盘上沿挡住的那一小截，
@@ -785,15 +816,16 @@
       if (frontOn !== S.tailFrontOn) { S.tailFrontOn = frontOn; el.tail.front.style.display = frontOn ? '' : 'none'; }
     }
 
-    function renderBody(now, rm, P) {
+    function renderBody(now, rm, P, rig) {
+      const { pivot: { x, y }, breathScale } = rig.body;
       const b = S.state === STATES.ASLEEP && !rm ? Math.sin(now * 2 * Math.PI / 3200) * P.breath : 0;
-      const tf = `translate(${f1(P.bodyX)} ${f1(P.bodyY + P.lift)}) rotate(${P.bodyRot.toFixed(2)} 400 410) ` +
-        `translate(400 410) scale(${(P.bodySX * (1 + 0.012 * b)).toFixed(4)} ${(P.bodySY * (1 + 0.025 * b)).toFixed(4)}) translate(-400 -410)`;
-      el.body.setAttribute('transform', turnTf(P) + tf);
+      const tf = `translate(${f1(P.bodyX)} ${f1(P.bodyY + P.lift)}) rotate(${P.bodyRot.toFixed(2)} ${x} ${y}) ` +
+        `translate(${x} ${y}) scale(${(P.bodySX * (1 + breathScale.x * b)).toFixed(4)} ${(P.bodySY * (1 + breathScale.y * b)).toFixed(4)}) translate(${-x} ${-y})`;
+      el.body.setAttribute('transform', turnTf(P, rig.turnX) + tf);
       el.tail.mask.setAttribute('transform', tf); // 前面那份尾巴的遮罩跟着身体走（#tail-front 自己已带转身变换）
     }
 
-    function renderZzz(now, P) {
+    function renderZzz(now, P, { origin }) {
       const on = S.state === STATES.ASLEEP;
       el.zzz.forEach((z, i) => {
         if (!on) { z.style.display = 'none'; return; }
@@ -801,8 +833,8 @@
         const ph = ((t / 2600) + i / 3) % 1;
         const born = t > i * 860; // 依次出现
         z.style.display = born ? '' : 'none';
-        const x = 520 + P.zzzDx + ph * 40 + Math.sin(ph * 6) * 4;
-        const y = 92 + P.zzzDy - ph * 78;
+        const x = origin.x + P.zzzDx + ph * 40 + Math.sin(ph * 6) * 4;
+        const y = origin.y + P.zzzDy - ph * 78;
         const sc = 0.7 + ph * 0.8;
         z.setAttribute('transform', `translate(${f1(x)} ${f1(y)}) scale(${sc.toFixed(3)})`);
         z.setAttribute('opacity', Math.sin(Math.PI * ph).toFixed(3));
@@ -824,8 +856,8 @@
       el.mouse.setAttribute('transform', `translate(${f1(m.x + P.mouseX)} ${f1(m.y + P.mouseY)}) rotate(${P.mouseRot.toFixed(2)})`);
     }
 
-    // 转身过渡：整只猫绕画面中线横向挤压
-    const turnTf = (P) => (P.turnSX !== 1 ? `translate(400 0) scale(${Math.max(0.02, P.turnSX).toFixed(3)} 1) translate(-400 0) ` : '');
+    // 转身过渡：角色绕自身中线横向挤压
+    const turnTf = (P, x) => (P.turnSX !== 1 ? `translate(${x} 0) scale(${Math.max(0.02, P.turnSX).toFixed(3)} 1) translate(${-x} 0) ` : '');
 
     // 每帧由扩展模块叠加的姿态（加法 / 乘法），默认值等于"什么都不改"
     function defaultPose() {
@@ -834,7 +866,7 @@
         earDroop: 0, breath: 1, lidMin: 0, tailAmp: null, tailSpeed: 0, tailTipLift: 0,
         pawTau: 1, pressBoost: 0, zzzDx: 0, zzzDy: 0, mouseX: 0, mouseY: 0, mouseRot: 0, hideCat: false,
         turnSX: 1, eyesClosed: false, eyesHappy: false, look: null, cheek: 0, mouseAbs: null, mouseHidden: false,
-        headSX: 1, headSY: 1, bodySX: 1, bodySY: 1, // 乘法：头以 400,262、身体以 400,410 为基准缩放
+        headSX: 1, headSY: 1, bodySX: 1, bodySY: 1, // 乘法：围绕各自的物种枢轴缩放
       };
     }
     const catParts = ['cat-head', 'cat-body', 'tail', 'arm-l', 'arm-r', 'paw-l', 'paw-r'].map($);
@@ -854,15 +886,16 @@
         update(now);
         const P = defaultPose();
         call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
+        const rig = currentRig();
         setCatHidden(P.hideCat);
         renderMouse(dt, P);
-        renderPaws(now, dt, P);
-        renderHead(now, dt, rm, P);
-        renderEyes(now, dt, P);
-        renderEars(now, P);
-        renderTail(now, dt, rm, P);
-        renderBody(now, rm, P);
-        renderZzz(now, P);
+        renderPaws(now, dt, P, rig);
+        renderHead(now, dt, rm, P, rig);
+        renderEyes(now, dt, P, rig.eyes);
+        renderEars(now, P, rig.ears);
+        renderTail(now, dt, rm, P, rig);
+        renderBody(now, rm, P, rig);
+        renderZzz(now, P, rig.zzz);
         call('render', now, dt, rm, P);
         fx.tick(now, rm);
       } catch (error) {
@@ -877,14 +910,18 @@
     }
     // ---------- 给扩展模块的上下文 ----------
     function headToScene(x, y) { // 头部局部坐标 -> 画面坐标（按当前头部变换）
-      const { tx, ty, rot, sx, sy } = S.headTf;
+      const { tx, ty, rot, sx, sy, pivot } = S.headTf;
       const a = rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-      const vx = (x - 400) * sx, vy = (y - 262) * sy;
-      return { x: 400 + vx * c - vy * s + tx, y: 262 + vx * s + vy * c + ty };
+      const vx = (x - pivot.x) * sx, vy = (y - pivot.y) * sy;
+      return { x: pivot.x + vx * c - vy * s + tx, y: pivot.y + vx * s + vy * c + ty };
     }
     function sceneToHead(x, y) { // headToScene 的逆变换
-      const H = S.headTf, a = -H.rot * Math.PI / 180, vx = x - H.tx - 400, vy = y - H.ty - 262;
-      return { x: 400 + (vx * Math.cos(a) - vy * Math.sin(a)) / H.sx, y: 262 + (vx * Math.sin(a) + vy * Math.cos(a)) / H.sy };
+      const H = S.headTf, { pivot } = H, a = -H.rot * Math.PI / 180;
+      const vx = x - H.tx - pivot.x, vy = y - H.ty - pivot.y;
+      return {
+        x: pivot.x + (vx * Math.cos(a) - vy * Math.sin(a)) / H.sx,
+        y: pivot.y + (vx * Math.sin(a) + vy * Math.cos(a)) / H.sy,
+      };
     }
     function releaseAll() { // 发飙时松开所有键和鼠标（画面上）
       for (const code of S.pressed.keys()) kb.setDown(code, false);
@@ -897,6 +934,7 @@
     const ctx = {
       S, STATES, el, kb, fx, paws, keycapText, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead,
       releaseAll, reducedMotion, clamp, approach, f1,
+      get rig() { return currentRig(); },
     };
     for (const make of modules) mods.push(make(ctx) || {});
 

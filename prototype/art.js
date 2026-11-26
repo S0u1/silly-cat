@@ -1,10 +1,10 @@
-// 图片只替换矢量组的外观。切猫时安装节点，姿态更新时复用同一组切片。
+// 图片只替换矢量组的外观。切换毛色时安装节点，姿态更新时复用同一组切片。
 (function () {
   'use strict';
   const manifests = new Map();
   const $ = id => document.getElementById(id);
   const added = [], replaced = [];
-  let active, head, tailStrip, backClipDefault, imprintOffset;
+  let active, head, tailStrip, imprintOffset;
   const frontClip = () => $('clip-head-path');
   const arms = new Map();
 
@@ -89,13 +89,12 @@
 
   function apply(coat) {
     if (active === coat) return;
-    const clip = frontClip();
-    const backClip = $('clip-back-head').firstElementChild;
-    backClipDefault ??= backClip.getAttribute('d');
+    const { rig } = window.SillySpecies.current;
     if (coat.art?.headPath || active?.art?.headPath) {
+      const clip = frontClip();
       clip.setAttribute('d', coat.art?.headPath ?? $('head-fill').getAttribute('d'));
       clip.removeAttribute('transform');
-      backClip.setAttribute('d', coat.art?.headPath ?? backClipDefault);
+      $('clip-back-head').firstElementChild.setAttribute('d', coat.art?.headPath ?? rig.head.backPath);
     }
     if (imprintOffset) {
       imprintOffset.replaceWith(...imprintOffset.childNodes);
@@ -132,6 +131,7 @@
     place('back-head', cfg.backHead ?? cfg.head, back, back.querySelectorAll(':scope > path, :scope > #coat-back-head-patterns'));
     place('body', cfg.body, $('cat-body'));
     place('back-body', cfg.body, $('strike-body'));
+    const mirrorX = 2 * rig.turnX;
     for (const side of ['l', 'r']) {
       function placeEar(key, parent) {
         const ear = cfg.ear;
@@ -139,13 +139,13 @@
         const asset = rightArt ? key + '-r' : key;
         if (!sizes[asset]) return;
         const mirror = side === 'r' && !rightArt;
-        const transforms = mirror ? ['translate(800 0) scale(-1 1)'] : [];
+        const transforms = mirror ? [`translate(${mirrorX} 0) scale(-1 1)`] : [];
         if (ear.rotate) {
           const [w, h] = sizes[asset];
           const { x, y } = ear.pivot ?? { x: ear.x + ear.width / 2, y: ear.y + ear.width * h / w };
-          transforms.push(rightArt ? `rotate(${ear.rotate} ${800 - x} ${y})` : `rotate(${-ear.rotate} ${x} ${y})`);
+          transforms.push(rightArt ? `rotate(${ear.rotate} ${mirrorX - x} ${y})` : `rotate(${-ear.rotate} ${x} ${y})`);
         }
-        const box = rightArt ? { ...ear, x: 800 - ear.x - ear.width } : ear;
+        const box = rightArt ? { ...ear, x: mirrorX - ear.x - ear.width } : ear;
         place(asset, box, parent, undefined, transforms.join(' '));
       }
       placeEar('ear', document.querySelector('#ear-' + side + ' .ear-shape-' + side));
@@ -172,7 +172,7 @@
       const length = guide.getTotalLength();
       const points = Array.from({ length: cfg.tail.segments + 1 }, (_, i) => guide.getPointAtLength(length * i / cfg.tail.segments));
       guide.remove();
-      bend(strip(strike, href('tail'), sizes.tail, cfg.tail), points, () => 31 * (cfg.tail.scale ?? 1));
+      bend(strip(strike, href('tail'), sizes.tail, cfg.tail), points, () => rig.tail.strikeDiameter * (cfg.tail.scale ?? 1));
     }
   }
 
@@ -180,7 +180,9 @@
     register: (id, sizes) => manifests.set(id, sizes),
     apply,
     cheek(b) {
-      const transform = `translate(400 205) scale(${1 + 0.0055 * b} ${1 + 0.0015 * b}) translate(-400 -205)`;
+      if (!head && !active?.art?.headPath) return;
+      const { imagePivot: { x, y }, scaleX, scaleY } = window.SillySpecies.current.rig.head.cheek;
+      const transform = `translate(${x} ${y}) scale(${1 + scaleX * b} ${1 + scaleY * b}) translate(${-x} ${-y})`;
       if (head) head.setAttribute('transform', transform);
       if (active?.art?.headPath) frontClip().setAttribute('transform', transform);
     },

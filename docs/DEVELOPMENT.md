@@ -49,7 +49,7 @@
 - 设置窗口：从右键菜单或菜单栏图标里的「设置…」打开（已经开着就带到前面，Esc 关闭；关掉不会退出应用）。页面是 `prototype/settings.html`，字段表和校验在 `prototype/settings.js`。时间参数都按秒填：入睡时间（默认 20，5–3600）；开始流口水、趴到键盘上的时刻（从最后一次操作算起，6/7–10800，留空 = 自动，即入睡时间 × 2、× 3.5；必须入睡 < 流口水 < 趴下）；连续打字多久发飙（默认 90，15–36000）；罢工后歇多久消气（默认 20，5–3600）；大约多久推一次东西（默认 600，60–36000）。「显示状态条」和「推东西」默认开启。改出合法值后立即生效并写入 `~/Library/Application Support/com.drew.sillycat/settings.json`，下次启动自动读取；「恢复默认」回到上面的默认值。
 - 设置窗口的基础高度由 `SETTINGS_HEIGHT` 和 `BASE_H` 一起定义。创建时按猫所在显示器的工作区逻辑高度减 40 px 封顶，取不到所在显示器时用主显示器，两者都取不到时用基础高度。页面展开或收起授权区时按 `screen.availHeight - 40` 封顶，内容超出时可上下滚动。
 - 「开机时自动启动」默认关闭，设置页打开时通过 `autostart_status` 读取系统状态，切换时调用 `set_autostart`。macOS 使用系统登录项，Windows 使用当前用户的 Run 键，并检查任务管理器为 SillyCat 写入的禁用记录。自启状态独立于 `settings.json` 和「恢复默认」。
-- `settings.json` 的 `cat` 字段可填 `settings.js` 的 `CATS` 中的任一 ID，缺失或无效时用 `cow`。`artStyle` 可填 `fur`（毛绒）或 `line`（线条），缺失或无效时用 `fur`。桌面版启动时等 `load_settings` 返回再显示选中的猫和画风，读取失败时显示毛绒奶牛猫。设置页换猫或切画风会立即保存，主窗口收到 `silly:settings` 就切换。「恢复默认」会选回毛绒奶牛猫。
+- `settings.json` 的 `cat` 字段可填 `settings.js` 的 `PETS` 中的任一 ID，缺失或无效时用 `cow`。`artStyle` 可填 `fur`（毛绒）或 `line`（线条），缺失或无效时用 `fur`。桌面版启动时等 `load_settings` 返回再显示选中的猫和画风，读取失败时显示毛绒奶牛猫。设置页换猫或切画风会立即保存，主窗口收到 `silly:settings` 就切换。「恢复默认」会选回毛绒奶牛猫。
 - 桌面版忽略 `?cat=` 和 `?style=`。支持 URL 的其他字段（含 `?statusbar=`、`?push=`、`?pushevery=`）在启动时按 URL 参数 > 已保存设置 > 默认值取值；之后在设置窗口里改的值覆盖 URL 参数。网页版不读也不写 settings.json，照旧用 URL 参数和控制栏；直接打开设置页可切换头像画风预览。
 - macOS 上猫窗口在其他应用的原生全屏 Space 里也显示（`src-tauri/src/macos_window.rs`）：主窗口在首次 `show()` 前设置 `collectionBehavior = CanJoinAllSpaces | Stationary | CanJoinAllApplications`（`CanJoinAllApplications` 是 macOS 13 起的跨应用浮窗角色，我们最低 13），置顶时窗口层级设为 `NSStatusWindowLevel`（25）。设置失败只记日志，猫照常显示。验证：用 `CGWindowListCopyWindowInfo` 看到猫窗口 layer = 25、onscreen；另一个应用进入原生全屏后肉眼确认猫仍在（macOS 26.6.2）。设置窗口没有做这个处理。
 - 漏掉抬起事件（密码框的安全输入、锁屏、UAC 时系统不把按键交给监听）时，`prototype/input-desktop.js` 每秒用 `held_input_state` 查一次按住满 1 秒的键和鼠标键：系统报已松开就立即松开；查不到（返回非数组、出错或 2 秒超时）时按每一次按下单独计时，连续查不到满 5 秒就只松开这一次按下，其他键鼠活动不会延长计时。`prototype/cat.js` 的帧循环在单帧出错时记一次日志并继续下一帧。
@@ -127,18 +127,38 @@ Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所
 - `is_win7()` 用 `RtlGetVersion` 识别版本号 6.1，WebView 通过 `platform_flags` 给桌面页面加上 `win7-card` 类，显示统一底色和 1 px 内边框。显示主窗口前和窗口尺寸改变时，Rust 用 `SetWindowRgn` 按 18 逻辑像素的半径裁剪主窗口。Win7 的 WebView2 背景只能使用不透明颜色。[微软 WebView2 文档](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2controller2)
 - 启动日志和弹窗、单实例唤出、卡片显示及缩放后的圆角裁剪都还没在 Win7 真机上验证。
 
+## 物种层
+
+设置中的 `cat` 仍保存毛色 ID，缺失或无效时回退到 `cow`。网页和设置页都加载 `species.js` 注册表和 `species-cat.js` 猫定义。`SillyCoats.list()` 返回 `{ id, name, species }`。网页初选、桌面设置变更、切换画风都经过 `SillyCoats.apply`，由它选择对应物种、安装素材并应用体型。
+
+新增物种时，在两个页面的 `coats.js` 之前加载新定义脚本，调用 `SillySpecies.register(id, definition)`。通过 `get(id)` 读取指定定义，`current` 读取当前定义。`select(id)` 切换五官和矢量部件，同一物种换毛色时复用已装部件。动画帧和动作模块使用当前定义。坐标沿用 800 × 620 舞台，角度为度，时长为毫秒。
+
+| 定义字段 | 用途 |
+| --- | --- |
+| `rig.turnX, head, body` | 左右镜像轴、头身变换支点、呼吸和摸头姿态。`head.path(cheek)` 给出正面动态轮廓，`head.backPath` 给出静态背面轮廓。 |
+| `rig.eyes, ears, paws` | 眼睛中心、半径、眼皮、闭眼和笑眼弧线，耳根和抖动，肩到腕的曲线和落爪偏移。眼耳的 L/R 按观众左右，肩爪的 L/R 按宠物自身左右。 |
+| `rig.tail, zzz` | 尾根、分段贝塞尔中线、采样点数、宽度函数、尾尖长度、摆动与够鼠标的轨迹，以及睡眠符号的起点。尾巴采样至少 3 点。 |
+| `scene.template, attributes(rig)` | 模板 ID 和静态 SVG 属性。属性函数返回一组 `[选择器, 属性对象]`，用于身体、遮罩、背面尾巴、汗滴等。 |
+| `art, coatShape` | 毛发图默认部件框、切片、键印偏移，以及头身和耳朵的默认缩放。每个毛色可以按部件覆盖。 |
+| `sleep, fatigue` | 口水与擦嘴、键印中心、头压键接触面、两种趴睡姿态，以及叹气、生气、发飙、罢工和修理动作。 |
+| `push, headphones` | 推杯时的凝视、伸爪、回撤和挥爪，耳罩贴合尺寸、音符起点和随音乐摇摆的幅度。 |
+
+在 `index.html` 添加带 `data-species-face="物种ID"` 的五官组。可以在眼睛前后各放一组，以保留腮红和口鼻的绘制顺序。参照 `#parts-cat` 提供 SVG 模板，以 `data-part` 匹配正背面耳朵、爪子、眉毛和压痕容器。更换部件只替换容器的子节点，正背面头组与耳罩挂载点保持稳定。最后在毛色表和设置页宠物列表中登记新宠物，补齐两种画风的素材和头像。
+
+视觉回归用 `python3 tools/regress_shots.py capture --out .art-src/regress/新目录`。限制监听端口的 macOS 环境在 `capture` 后加 `--offline-webkit`，基线与新版须用同一渲染器。HTTP 路径固定键帽的 CSS 过渡和回弹为最终位置，其余舞台动画按模拟时钟推进。用 `python3 tools/regress_shots.py compare 基线目录 新目录` 对比解码后的 RGB 像素；有差异时会输出文件名、不同像素数和二值差异图。
+
 ## 手绘毛发部件
 
 网页与桌面主窗口都通过 `SillyCoats.apply(id)` 换猫。`index.html` 先加载 `art.js`、各猫的尺寸清单，再加载 `coats.js`。只有同时具备毛色的 `art` 配置和清单条目的部件才会替换对应矢量。切走时移除图片和切片，恢复原花纹与轮廓。眼睛、鼻口、牙齿、胡须、腮红、鼻边黑点、键鼠、杯子和特效继续由矢量绘制。头图鼓腮时绕 (400, 205) 缩放，压痕仍使用动态的头部裁剪路径。
 
 新增一只猫时，依次完成以下步骤。
 
-1. 在 `prototype/coats.js` 的列表登记 ID、名称、`art: art(id)` 和可选的 `shape`。在 `settings.js` 的 `CATS` 同位置加入 ID。网页下拉框从 `SillyCoats.list()` 读取列表。更新 README 的猫列表。
+1. 在 `prototype/coats.js` 的列表登记 ID、名称、`species: 'cat'` 和可选的 `art`、`shape`。在 `settings.js` 的 `PETS` 同位置加入 ID。网页下拉框从 `SillyCoats.list()` 读取列表。更新 README 的猫列表。
 2. 在 `style.css` 的头像调色区域添加该 ID 的基础毛色和四肢、尾巴、耳朵的回退色。左右眼皮用 `--coat-lid-l/r` 匹配眼周的毛色，闭眼弧线用 `--coat-eye-arc-l/r`。两只虹膜默认使用 `--coat-iris`，异瞳分别覆盖 `--coat-iris-l`、`--coat-iris-r`。胡须使用 `--coat-whisker` 和 `--coat-whisker-opacity`，眉毛使用 `--coat-brow`，浅色侧眉毛可用 `--coat-brow-l` 覆盖。按需设置鼻子、嘴线和腮红透明度。
 3. 将透明 PNG 放进同一输入目录，包括 `head`、`ear`、`body`、`arm-l`、`arm-r`、`paw-l`、`paw-r`、`tail`、`back-head`、`ear-back`、`back-body`。头图留出五官。前腿从肩到腕、尾巴从根到尖，都从上往下画成直条。正面和背面分别按观众左右命名：`ear` 和 `ear-back` 在画面左边；右耳默认镜像左耳。花色不对称时，再给出已朝右的 `ear-r.png`、`ear-back-r.png`，各自在对应视角的右边直接使用。
 4. 在 `tools/prepare_art.py` 的 `PORTRAITS` 登记头图中心和宽度、耳图位置和角度、可选耳根支点，以及 `headSX` 和耳朵缩放，与 `coats.js` 同步。运行 `python3 tools/prepare_art.py --cat 猫ID --source 原图目录`（需要 Pillow 的 WebP 支持）。奶牛猫沿用脚本内的旧文件名映射。脚本清除 alpha < 32 的像素，裁切后留 6 px 透明边，缩到长边至多 768 px，导出质量 90 的 WebP 和尺寸清单到 `prototype/art/猫ID/`。头图和耳图齐备时同步生成 `prototype/cats/猫ID.svg`。头像内嵌长边至多 256 px 的图片，复用网页的矢量五官和配色。
 5. 在 `index.html` 的 `art.js` 与 `coats.js` 之间加载新清单。原图未齐时可先登记空清单 `SillyArt.register("猫ID", {});` 并提供矢量头像。已有的九只非奶牛猫均预留了清单入口，生成资源后刷新页面即可。
-6. 按 800 × 620 场景坐标调摆放。用 `art(id, opts)` 按部件浅合并字段，例如 `{ head: { cy: 166 }, arm: { width: 44 }, tail: { scale: 0.6 } }`。前腿默认切 8 段，尾巴默认切 16 段，相邻切片按接点的角平分线斜切拼接。正面尾宽为（原直径 + 毛边）× `art.tail.scale`，鼠标上方复用这组切片。罢工尾宽为 31 × 同一倍数，路径和时序沿用原姿态。用 `?cat=猫ID&demo=tail-mouse` 和 `?cat=猫ID&demo=strike` 检查正背面、尾巴和耳朵，再在设置页检查头像与键盘选猫。
+6. 按 800 × 620 场景坐标调摆放。在毛色条目的 `art` 上填写覆盖值，由 `art(species, id, opts)` 按部件浅合并字段，例如 `{ head: { cy: 166 }, arm: { width: 44 }, tail: { scale: 0.6 } }`。前腿默认切 8 段，尾巴默认切 16 段，相邻切片按接点的角平分线斜切拼接。正面尾宽为（原直径 + 毛边）× `art.tail.scale`，鼠标上方复用这组切片。罢工尾宽为 31 × 同一倍数，路径和时序沿用原姿态。用 `?cat=猫ID&demo=tail-mouse` 和 `?cat=猫ID&demo=strike` 检查正背面、尾巴和耳朵，再在设置页检查头像与键盘选猫。
 
 新增猫，或改了线条版的正面花纹、五官、配色或体型后，运行 `python3 tools/line_avatars.py`（需要 Python 3 和 Node.js）。脚本复用场景 SVG、`style.css` 的头像配色和 `coats.js` 的矢量花纹，重新生成 `prototype/cats/line/猫ID.svg`。设置页按画风读取对应目录下的头像。
 

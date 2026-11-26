@@ -255,6 +255,8 @@
 <script src="updater.js"></script>
 <script src="settings.js"></script>
 <script src="headphones.js"></script>
+<script src="species.js"></script>
+<script src="species-cat.js"></script>
 <script src="coats.js"></script>
 <script>
 (function () {
@@ -279,7 +281,7 @@
   }
   const avatars = new Map();
   const catNames = new Map(window.SillyCoats.list().map(({ id, name }) => [id, name]));
-  for (const id of S.CATS) {
+  for (const id of S.PETS) {
     const label = document.createElement('label');
     label.className = 'cat-option';
     const input = document.createElement('input');

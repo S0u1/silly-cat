@@ -18,7 +18,7 @@
   const AUTO = Object.freeze({ drool: 2, slump: 3.5 });
   const SIZE = Object.freeze({ min: 0.5, max: 2, step: 0.05 });
   // 和 coats.js 的列表保持一致，顺序也是设置页的头像顺序。
-  const CATS = Object.freeze(['cow', 'orange', 'lihua', 'siamese', 'black', 'calico', 'blue', 'white', 'maine', 'sphynx']);
+  const PETS = Object.freeze(['cow', 'orange', 'lihua', 'siamese', 'black', 'calico', 'blue', 'white', 'maine', 'sphynx']);
 
   // min / max 都是秒
   const FIELDS = Object.freeze({
@@ -67,7 +67,7 @@
       s.headphoneColor = normalizeHeadphoneColor(raw.headphoneColor);
       const size = raw.size;
       if (Number.isFinite(size) && size >= SIZE.min && size <= SIZE.max) s.size = size;
-      if (CATS.includes(raw.cat)) s.cat = raw.cat;
+      if (PETS.includes(raw.cat)) s.cat = raw.cat;
       if (raw.artStyle === 'fur' || raw.artStyle === 'line') s.artStyle = raw.artStyle;
     }
     const err = validate(s);
@@ -77,5 +77,5 @@
     return s;
   }
 
-  window.SillySettings = { DEFAULTS, AUTO, SIZE, CATS, HEADPHONE_COLORS, normalizeHeadphoneColor, FIELDS, KEYS, BOOLS, validate, sanitize, effDrool, effSlump };
+  window.SillySettings = { DEFAULTS, AUTO, SIZE, PETS, HEADPHONE_COLORS, normalizeHeadphoneColor, FIELDS, KEYS, BOOLS, validate, sanitize, effDrool, effSlump };
 })();

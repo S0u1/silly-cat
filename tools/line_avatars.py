@@ -1,11 +1,14 @@
 """用场景的矢量部件、花纹和配色生成线条头像。需要 Python 3 和 Node.js。"""
 
+from copy import deepcopy
 import json
 from pathlib import Path
 import re
 import subprocess
 import xml.etree.ElementTree as ET
 
+
+from portrait_scene import cat_scene
 
 PROTOTYPE = Path(__file__).resolve().parents[1] / "prototype"
 
@@ -25,7 +28,9 @@ const context = {
     querySelectorAll: () => [],
   },
 };
-vm.runInNewContext(fs.readFileSync(process.argv[1], 'utf8'), context);
+for (const file of ['species.js', 'species-cat.js', 'coats.js']) {
+  vm.runInNewContext(fs.readFileSync(require('node:path').join(process.argv[1], file), 'utf8'), context);
+}
 const coats = context.window.SillyCoats;
 const portraits = coats.list().map(({ id }) => {
   const { shape, head, eye } = coats.setArtStyle('line', id);
@@ -72,7 +77,12 @@ def avatar(scene, styles, patterns, portrait):
     pose.append(by_id(head, "head-line"))
 
     eyes = dict(zip(("eye-l-open", "eye-r-open"), portrait.get("eyes", [])))
-    for child in head:
+    # Keep the original paint order when extracting the cat's grouped face.
+    for layer in head:
+        if layer.get("data-species-face") == "cat":
+            pose.extend(layer)
+            continue
+        child = layer
         node_id = child.get("id")
         if node_id in ("eye-l-open", "eye-r-open"):
             if node_id in eyes:
@@ -87,10 +97,8 @@ def avatar(scene, styles, patterns, portrait):
 
 def main():
     data = json.loads(subprocess.check_output(
-        ["node", "-e", READ_COATS, str(PROTOTYPE / "coats.js")], text=True))
-    page = (PROTOTYPE / "index.html").read_text(encoding="utf-8")
-    start = page.index('<svg id="scene"')
-    scene_markup = page[start:page.index("</svg>", start) + len("</svg>")]
+        ["node", "-e", READ_COATS, str(PROTOTYPE)], text=True))
+    scene = cat_scene(PROTOTYPE)
     css = (PROTOTYPE / "style.css").read_text(encoding="utf-8")
     styles = "\n".join(css.split(f"/* portrait-{block}:start */")[1]
                        .split(f"/* portrait-{block}:end */")[0].replace("html", "svg")
@@ -101,7 +109,7 @@ def main():
     directory.mkdir(parents=True, exist_ok=True)
     for portrait in data["portraits"]:
         path = directory / f"{portrait['id']}.svg"
-        path.write_bytes(avatar(ET.fromstring(scene_markup), styles, data["defs"], portrait))
+        path.write_bytes(avatar(deepcopy(scene), styles, data["defs"], portrait))
         print(path.relative_to(PROTOTYPE))
 
 

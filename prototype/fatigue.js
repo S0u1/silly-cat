@@ -67,7 +67,7 @@
       kbRot: 0, kbTy: 0, mouseBandageUntil: 0,
       kbShakeStart: -1e9, shakeUntil: 0, shakeAmp: 0,
       nextSigh: performance.now() + 2500, sighStart: -1e9, earFlick: -1e9, earSide: 'l',
-      debris: [], bubbles: [], effects: [], shown: {}, ghosts: null, cloth: null, hist: { L: [], R: [] },
+      debris: [], bubbles: [], effects: [], shown: {}, ghosts: null, ghostShape: null, cloth: null, hist: { L: [], R: [] },
     };
 
     const moodOf = (v) => (v < 0.6 ? 'fine' : v < 0.85 ? 'tired' : 'angry');
@@ -231,7 +231,10 @@
       return { x: 400 + vx * c - vy * s, y: 477 + vx * s + vy * c + F.kbTy };
     }
     function slamPoint() { const H = ctx.mouseHome(); return { x: H.x + (mouseDir() < 0 ? 12 : -12), y: 566 }; }
-    function overheadPoint() { return { x: 400 + mouseDir() * 128, y: 44 }; }
+    function overheadPoint() {
+      const { x, y } = window.SillySpecies.current.fatigue.rage.overhead;
+      return { x: window.SillySpecies.current.rig.turnX + mouseDir() * x, y };
+    }
 
     // 发飙时鼠标的位置（被抓起、举高、砸下、压扁）
     function rageMousePose(tm) {
@@ -251,16 +254,22 @@
 
     // ---------- 爪子 ----------
     function forcedPawTarget(paw, now) {
-      if (F.strike) { const r = ctx.restPoint(paw.side); return { id: 'crossed', x: r.x, y: r.y - 40, tau: 200 }; }
+      if (F.strike) {
+        const r = ctx.restPoint(paw.side);
+        const { crossedLift } = window.SillySpecies.current.fatigue.strike;
+        return { id: 'crossed', x: r.x, y: r.y - crossedLift, tau: 200 };
+      }
       if (F.repair && !ctx.reducedMotion()) return repairPaw(paw, now - F.repair.start);
       if (!F.rage || ctx.reducedMotion()) return null;
       const t = now - F.rage.start;
-      const sx = paw.side === 'L' ? 1 : -1; // 猫的左爪在观众右侧
-      if (t < SMASH_T0) return { id: 'rage', x: 400 + sx * 100, y: 118, tau: 70 };
+      const { rig, fatigue } = window.SillySpecies.current;
+      const { raised, smash, clenched } = fatigue.rage.paws;
+      const side = paw.side === 'L' ? 1 : -1; // 左爪在观众右侧
+      if (t < SMASH_T0) return { id: 'rage', x: rig.turnX + side * raised.x, y: raised.y, tau: 70 };
       if (t < MOUSE_T0) {
         const c = ((t - SMASH_T0) % SMASH_CYCLE) / SMASH_CYCLE, up = c < 0.6;
-        return up ? { id: 'rage', x: 400 + sx * 100, y: 118, tau: 45 }
-          : { id: 'rage', x: 400 + sx * 66, y: 440, tau: 12, pressing: true };
+        return up ? { id: 'rage', x: rig.turnX + side * raised.x, y: raised.y, tau: 45 }
+          : { id: 'rage', x: rig.turnX + side * smash.x, y: smash.y, tau: 12, pressing: true };
       }
       const tm = t - MOUSE_T0;
       if (tm < M_END) {
@@ -271,7 +280,7 @@
           if (tm < M_PAT1) return { id: 'rage', x: T.x + 6, y: T.y - 12, tau: 10, pressing: true }; // 补一爪拍扁
           return { id: 'rage', x: T.x + 6, y: T.y - 40, tau: 60 };
         }
-        return { id: 'rage', x: 400 + sx * 92, y: 300, tau: 80 }; // 另一只爪握拳在胸前
+        return { id: 'rage', x: rig.turnX + side * clenched.x, y: clenched.y, tau: 80 }; // 另一只爪握拳在胸前
       }
       return null;
     }
@@ -386,7 +395,8 @@
     }
     function spawnHmph(now, side) {
       const g = addSvg(E.bubbles, '<g class="hmph"><path class="hmph-bubble" d="M -26 -14 Q -26 -30 0 -30 Q 26 -30 26 -14 Q 26 2 4 2 L -6 12 L -4 2 Q -26 2 -26 -14 Z"/><text x="0" y="-8">哼</text></g>');
-      F.bubbles.push({ g, start: now, x: (side === 'r' ? 514 : 286) + rand(-10, 10), y: 104 });
+      const { x, y } = window.SillySpecies.current.fatigue.strike.hmph[side];
+      F.bubbles.push({ g, start: now, x: x + rand(-10, 10), y });
     }
 
     // ---------- 姿态 ----------
@@ -396,9 +406,10 @@
     }
     function pose(now, dt, rm, P) {
       const m = mood();
+      const { sigh, angry, rage } = window.SillySpecies.current.fatigue;
       if (!F.rage && !F.strike && !F.repair) {
         if (m === 'tired') { P.lidMin = Math.max(P.lidMin, 0.45); P.pawTau *= 1.9; P.pressBoost += 0.08; }
-        else if (m === 'angry') { P.lidMin = Math.max(P.lidMin, 0.32); P.pawTau *= 1.3; P.tailAmp = 22; P.tailSpeed = 0.024; }
+        else if (m === 'angry') { P.lidMin = Math.max(P.lidMin, 0.32); P.pawTau *= 1.3; P.tailAmp = angry.tailAmp; P.tailSpeed = 0.024; }
         // 叹气：头和肩膀沉一下，眼睛闭一下
         if (m === 'tired' && !rm && now >= F.nextSigh) {
           F.sighStart = now;
@@ -407,22 +418,25 @@
         const p = m === 'tired' ? sighPhase(now) : -1;
         if (p >= 0) {
           const s = Math.sin(Math.PI * p);
-          P.headY += 6 * s; P.bodyY += 3 * s;
+          P.headY += sigh.headDip * s; P.bodyY += sigh.bodyDip * s;
           if (p > 0.12 && p < 0.7) P.eyesClosed = true;
         }
       }
-      if (m === 'angry' && !F.strike) P.cheek = 20 + (rm ? 0 : 2.5 * Math.sin(now / 260));
+      if (m === 'angry' && !F.strike) P.cheek = angry.cheek + (rm ? 0 : angry.cheekPulse * Math.sin(now / 260));
 
       if (F.rage) {
         const t = now - F.rage.start;
         P.lidMin = Math.max(P.lidMin, 0.3);
-        P.tailAmp = 26; P.tailSpeed = 0.03;
+        P.tailAmp = rage.tailAmp; P.tailSpeed = 0.03;
         if (!rm) {
-          P.lift = t < STAND_MS ? -30 * easeOut(t / STAND_MS) : t < SIT_T0 ? -30 : -30 * (1 - (t - SIT_T0) / (RAGE_MS - SIT_T0));
+          P.lift = t < STAND_MS ? rage.standLift * easeOut(t / STAND_MS)
+            : t < SIT_T0 ? rage.standLift : rage.standLift * (1 - (t - SIT_T0) / (RAGE_MS - SIT_T0));
           const tm = t - MOUSE_T0;
           if (tm >= M_REACH && tm < M_HIT) { // 举起鼠标时身体后仰
             const p = tm < M_LIFT ? easeOut((tm - M_REACH) / (M_LIFT - M_REACH)) : 1 - easeIn((tm - M_LIFT) / (M_HIT - M_LIFT));
-            P.headY -= 10 * p; P.headRot += mouseDir() * -5 * p; P.bodyRot += mouseDir() * -3 * p; P.lift -= 6 * p;
+            const { headY, headRot, bodyRot, lift } = rage.lean;
+            P.headY -= headY * p; P.headRot += mouseDir() * headRot * p;
+            P.bodyRot += mouseDir() * bodyRot * p; P.lift -= lift * p;
           }
           if (tm >= 0 && tm < M_SPLIT) P.mouseAbs = rageMousePose(tm);
         }
@@ -495,9 +509,19 @@
       // 两只爪的残影
       if (!F.ghosts) {
         F.ghosts = ['L', 'R'].flatMap((s) => [0, 1].map((i) => {
-          const g = addSvg(E.debris, `<ellipse class="ghost ${s === 'L' ? 'ghost-white' : 'ghost-black'}" rx="20" ry="14"/>`);
+          const g = addSvg(E.debris, '<ellipse/>');
           return { s, i, g };
         }));
+      }
+      const ghostShape = window.SillySpecies.current.fatigue.repairGhost;
+      if (ghostShape !== F.ghostShape) {
+        for (const { s, g } of F.ghosts) {
+          const { paint, rx, ry } = ghostShape[s];
+          g.setAttribute('class', `ghost ${paint}`);
+          g.setAttribute('rx', rx);
+          g.setAttribute('ry', ry);
+        }
+        F.ghostShape = ghostShape;
       }
       for (const s of ['L', 'R']) { F.hist[s].push({ x: paws[s].x, y: paws[s].y }); if (F.hist[s].length > 8) F.hist[s].shift(); }
       const ghostOn = tr >= CAP_T0 && tr < WIPE_T0 + 80;
@@ -549,19 +573,21 @@
     function render(now, dt, rm) {
       const m = mood();
       const raging = !!F.rage;
+      const { rig, fatigue } = window.SillySpecies.current;
       show(E.brows, 'brows', m !== 'fine');
       show(E.sweat, 'sweat', m === 'tired' && !raging);
       show(E.anger, 'anger', m === 'angry');
       if (m === 'angry') {
         const s = rm ? 1 : 1 + 0.12 * Math.sin(now / 90);
-        E.anger.setAttribute('transform', `translate(478 96) scale(${s.toFixed(3)})`);
+        const { x, y } = fatigue.angry.symbol;
+        E.anger.setAttribute('transform', `translate(${x} ${y}) scale(${s.toFixed(3)})`);
       }
 
       // 叹气：气团从嘴角出来，往斜下方飘出、散开、变淡（都在头部组内）
       const sp = m === 'tired' ? sighPhase(now) : -1;
       if (sp >= 0) {
         show(E.sigh, 'sigh', true);
-        const A = { x: 410, y: 236 }, base = [[0, 0, 6], [7, -3, 4.5], [3, 6, 4]];
+        const A = fatigue.sigh.anchor, base = [[0, 0, 6], [7, -3, 4.5], [3, 6, 4]];
         base.forEach(([ox, oy, r], i) => {
           const c = E.sighC[i], k = 1 + 1.6 * sp;
           c.setAttribute('cx', f1(A.x + 26 * sp + ox * k));
@@ -602,14 +628,15 @@
         let sx = 1;
         if (F.strike && !rm) sx = clamp((now - F.strike.start - TURN_MS / 2) / (TURN_MS / 2), 0.02, 1);
         if (repairBack) sx = clamp(1 - (now - F.repair.start) / (TURN_MS / 2), 0.02, 1);
-        E.strike.setAttribute('transform', `translate(400 0) scale(${sx.toFixed(3)} 1) translate(-400 0)`);
+        E.strike.setAttribute('transform', `translate(${rig.turnX} 0) scale(${sx.toFixed(3)} 1) translate(${-rig.turnX} 0)`);
       }
       if (F.strike) {
         const t = now - F.strike.start;
         // 尾巴：绕离开身体的那一点往上翘，再拍回桌面
+        const { tail, ears, headTurn } = fatigue.strike;
         let a = 0;
-        if (!rm) { const p = (t % 1100) / 1100; a = p < 0.75 ? -14 * easeOut(p / 0.75) : -14 * (1 - (p - 0.75) / 0.25); }
-        E.strikeTail.setAttribute('transform', `rotate(${a.toFixed(2)} 500 378)`);
+        if (!rm) { const p = (t % 1100) / 1100; a = p < 0.75 ? tail.angle * easeOut(p / 0.75) : tail.angle * (1 - (p - 0.75) / 0.25); }
+        E.strikeTail.setAttribute('transform', `rotate(${a.toFixed(2)} ${tail.pivot.x} ${tail.pivot.y})`);
         // 偷听：隔几秒一只耳朵朝观众转过来、头往那边歪一点，再转回去"哼"一声
         if (!rm && now >= F.strike.nextPeek && now - F.strike.peek > 1200) {
           F.strike.peek = now; F.strike.nextPeek = now + rand(3000, 6000);
@@ -625,14 +652,15 @@
         // 耳朵：平时向两侧各压低 12°（飞机耳）；偷听的那只立起来、横向收窄像转了过来；按键时抖一下
         const te = now - F.earFlick;
         for (const s of ['l', 'r']) {
-          const px = s === 'l' ? 322 : 478, py = 110;
-          let ea = 12 - (s === ps ? 18 * turn : 0);
-          if (s === F.earSide && te >= 0 && te < 240) ea += 16 * Math.sin(2 * Math.PI * te / 120) * (1 - te / 240);
-          const k = s === ps ? 1 - 0.4 * turn : 1;
+          const { x: px, y: py } = ears.pivots[s];
+          let ea = ears.rest - (s === ps ? ears.peek * turn : 0);
+          if (s === F.earSide && te >= 0 && te < 240) ea += ears.flick * Math.sin(2 * Math.PI * te / 120) * (1 - te / 240);
+          const k = s === ps ? 1 - ears.narrow * turn : 1;
           E.strikeEar[s].setAttribute('transform', `rotate(${(sg(s) * ea).toFixed(2)} ${px} ${py})` +
             (k !== 1 ? ` translate(${px} ${py}) scale(${k.toFixed(3)} 1) translate(${-px} ${-py})` : ''));
         }
-        E.strikeHead.setAttribute('transform', `rotate(${(sg(ps) * 7 * turn).toFixed(2)} 400 262)`);
+        const { x, y } = rig.head.pivot;
+        E.strikeHead.setAttribute('transform', `rotate(${(sg(ps) * headTurn * turn).toFixed(2)} ${x} ${y})`);
       }
 
       if (F.repair) renderRepair(now, dt, now - F.repair.start);

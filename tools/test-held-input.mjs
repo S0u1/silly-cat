@@ -4,7 +4,7 @@ import test from 'node:test';
 import { setImmediate as flush } from 'node:timers/promises';
 import { createContext, Script } from 'node:vm';
 
-const scripts = ['keyboard.js', 'cat.js', 'input-desktop.js'].map((filename) =>
+const scripts = ['species.js', 'species-cat.js', 'keyboard.js', 'cat.js', 'input-desktop.js'].map((filename) =>
   new Script(readFileSync(new URL(`../prototype/${filename}`, import.meta.url), 'utf8'), { filename }));
 
 function fakeClock() {
@@ -61,6 +61,7 @@ function fakeElement() {
     },
     setAttribute: (name, value) => attributes.set(name, String(value)),
     getAttribute: (name) => attributes.get(name),
+    querySelector: fakeElement,
     appendChild() {},
     remove() {},
     getScreenCTM: () => null,

@@ -10,7 +10,6 @@
   const IDLE_MIN = 2500, IDLE_MAX = 20000;
   // 杯底中心：猫身旁、和猫坐的高度一样（身体底边 y≈412），在键盘右上角后面，爪子往旁边一伸就够得着
   const MUG = { x: 655, y: 410 };
-  const FRONT = { x: 400, y: 178 };
   const DEMOS = ['push', 'push-back'];
 
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -154,7 +153,8 @@
 
     function pawTarget(frame, paw) {
       const { t, dir: d, offset: distance, beat } = frame;
-      const hover = { x: cupX(d, distance) - 34 * d, y: MUG.y - 30 };
+      const reach = window.SillySpecies.current.push.paw;
+      const hover = { x: cupX(d, distance) + reach.hover.x * d, y: MUG.y + reach.hover.y };
       if (t < TAP) {
         return { ...blendPoint(restPoint(paw.side), hover, ease((t - REACH) / 300)), pressing: false };
       }
@@ -162,12 +162,13 @@
         // 回撤、拍到杯身、再收回来，每一拍最后回到悬停的位置。
         const windup = ease(beat / 0.20) * (1 - ease((beat - 0.20) / 0.23));
         const press = ease((beat - 0.20) / 0.23) * (1 - ease((beat - 0.70) / 0.30));
-        return { x: hover.x + d * (5 * press - 16 * windup), y: hover.y + 5 * press - 8 * windup,
+        return { x: hover.x + d * (reach.press.x * press + reach.windup.x * windup),
+          y: hover.y + reach.press.y * press + reach.windup.y * windup,
           pressing: beat >= 0.43 && beat < 0.70 };
       }
       if (t < SHOVE) return { ...hover, pressing: false };
       const sweep = ease((t - SHOVE) / 230);
-      return { x: hover.x + d * 64 * sweep, y: hover.y + 7 * sweep, pressing: t < RELEASE + 70 };
+      return { x: hover.x + d * reach.shove.x * sweep, y: hover.y + reach.shove.y * sweep, pressing: t < RELEASE + 70 };
     }
 
     function forcedPawTarget(paw, now) {
@@ -181,23 +182,24 @@
       const frame = view(now);
       const { t, dir: d } = frame;
       if (frame.acting) {
+        const { lookFront, headTilt, watchDip, proudLift, tail } = window.SillySpecies.current.push;
         const cup = { x: cupX(d, frame.offset), y: MUG.y - 36 };
-        if (t < REACH) P.look = FRONT;
-        else if (t < STARE) P.look = blendPoint(FRONT, cup, ease((t - REACH) / 170));
+        if (t < REACH) P.look = lookFront;
+        else if (t < STARE) P.look = blendPoint(lookFront, cup, ease((t - REACH) / 170));
         else if (t < SHOVE) {
-          P.look = blendPoint(cup, FRONT, ease((t - STARE) / 140));
+          P.look = blendPoint(cup, lookFront, ease((t - STARE) / 140));
           P.lidMin = Math.max(P.lidMin, 0.47 * Math.sin(Math.PI * (t - STARE) / (SHOVE - STARE)));
-        } else if (t < WATCH) P.look = blendPoint(FRONT, cup, ease((t - SHOVE) / 100));
+        } else if (t < WATCH) P.look = blendPoint(lookFront, cup, ease((t - SHOVE) / 100));
         else P.look = blendPoint(cup, { x: 400 + 400 * d, y: 700 }, ease((t - WATCH) / 210));
 
-        P.headRot += d * 3 * ease(t / 200) * (1 - ease((t - SHOVE) / 300));
-        if (t >= WATCH && t < SMUG) P.headY += 6 * Math.sin(Math.PI * (t - WATCH) / (SMUG - WATCH));
+        P.headRot += d * headTilt * ease(t / 200) * (1 - ease((t - SHOVE) / 300));
+        if (t >= WATCH && t < SMUG) P.headY += watchDip * Math.sin(Math.PI * (t - WATCH) / (SMUG - WATCH));
         if (t >= SMUG) {
           P.eyesHappy = true;
           const proud = Math.sin(Math.PI * (t - SMUG) / (END - SMUG));
-          P.headY -= 5 * proud;
-          P.tailAmp = 9 + 5 * proud;
-          P.tailSpeed = 0.015;
+          P.headY -= proudLift * proud;
+          P.tailAmp = tail.amp + tail.ampBoost * proud;
+          P.tailSpeed = tail.speed;
         }
       }
       if (pinned) freezePose(now, rm, P, frame);
@@ -219,9 +221,11 @@
         paw.x = point.x; paw.y = point.y; paw.press = point.pressing ? 1 : 0; paw.lift = 0;
       }
       const t = demoTime(now);
-      P.tailAmp = P.tailAmp ?? (rm ? 0 : 9);
+      const { rig, push } = window.SillySpecies.current;
+      const idleTail = rig.tail.wag.awake;
+      P.tailAmp = P.tailAmp ?? (rm ? 0 : idleTail.amp);
       P.tailSpeed = 0;
-      S.tailPhase = t * 0.003 + Math.max(0, Math.min(t, END) - SMUG) * 0.012;
+      S.tailPhase = t * idleTail.speed + Math.max(0, Math.min(t, END) - SMUG) * (push.tail.speed - idleTail.speed);
       S.tailAngle = P.tailAmp * Math.sin(S.tailPhase);
     }
 

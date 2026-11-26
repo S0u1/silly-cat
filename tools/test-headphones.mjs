@@ -5,13 +5,13 @@ import { setImmediate as flush } from 'node:timers/promises';
 import { createContext, Script } from 'node:vm';
 
 const read = (file) => readFileSync(new URL(`../prototype/${file}`, import.meta.url), 'utf8');
-const scripts = new Map(['headphones.js', 'coats.js', 'art.js', 'settings.js'].map((file) =>
+const scripts = new Map(['species.js', 'species-cat.js', 'headphones.js', 'coats.js', 'art.js', 'settings.js'].map((file) =>
   [file, new Script(read(file), { filename: file })]));
 
 function load(files, globals = {}) {
   const sandbox = createContext(globals);
   sandbox.window = sandbox;
-  for (const file of files) scripts.get(file).runInContext(sandbox);
+  for (const file of ['species.js', 'species-cat.js', ...files]) scripts.get(file).runInContext(sandbox);
   return sandbox;
 }
 

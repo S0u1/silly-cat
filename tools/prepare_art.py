@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 
 from PIL import Image, ImageOps
 
+from portrait_scene import cat_scene
+
 PROTOTYPE = Path(__file__).resolve().parents[1] / "prototype"
 COW = {
     "head": "head.png", "ear": "ear-left.png", "body": "body.png",
@@ -70,9 +72,7 @@ def portrait_image(directory, key, width, x, y=None, cy=176):
 
 def avatar(cat, sizes):
     # Reuse the scene's vector face and palette, including side-specific lids and irises.
-    page = (PROTOTYPE / "index.html").read_text()
-    start = page.index('<svg id="scene"')
-    scene = ET.fromstring(page[start:page.index("</svg>", start) + 6])
+    scene = cat_scene(PROTOTYPE)
     head = scene.find(".//*[@id='cat-head']")
     root = ET.Element("svg", {"xmlns": "http://www.w3.org/2000/svg",
                               "viewBox": "244 12 312 284", "data-cat": cat})
@@ -116,7 +116,12 @@ def avatar(cat, sizes):
     else:
         for key in ("head-fill", "head-line"):
             pose.append(head.find(f"./path[@id='{key}']"))
-    for child in head:
+    # Keep the original paint order when extracting the cat's grouped face.
+    for layer in head:
+        if layer.get("data-species-face") == "cat":
+            pose.extend(layer)
+            continue
+        child = layer
         if child.get("class") in ("blush", "whisker", "fang", "ink-thin coat-mouth-line",
                                   "ink-thin coat-nose", "coat-cow-marking"):
             pose.append(child)

@@ -1,4 +1,4 @@
-// 播放状态只控制耳机，不参与猫的睡眠和疲劳计时。
+// 播放状态独立于睡眠和疲劳计时。
 (function () {
   'use strict';
 
@@ -99,14 +99,13 @@
   // 贴纸在头顶软垫上居中：各图形自身的竖向中心。
   const STICKER_CY = Object.freeze({ strawberry: 4.5, mint: 0, latte: 1.5, sky: -0.5 });
 
-  function geometry({ x0, x1, y0, y1 }) {
-    const w = x1 - x0, k = w / 260, cx = (x0 + x1) / 2;
+  function geometry({ x0, x1, y0, y1 }, fit = window.SillySpecies.current.headphones.fit) {
+    const w = x1 - x0, k = w / fit.referenceWidth, cx = (x0 + x1) / 2;
     const rx = CUP_W / 2 * k, ry = CUP_H / 2 * k;
-    const left = x0 - CUP_GAP * k - rx, right = x1 + CUP_GAP * k + rx, cy = y0 + 0.52 * (y1 - y0);
+    const left = x0 - CUP_GAP * k - rx, right = x1 + CUP_GAP * k + rx, cy = y0 + fit.cupY * (y1 - y0);
     return {
-      w, k, cx, cy, left, right, top: y0 + 6 * k, rx, ry,
-      // 保留第一版的音符起点。
-      noteX: 128 * k, noteY: (y0 + y1) / 2 - 31 * k - 6,
+      w, k, cx, cy, left, right, top: y0 + fit.bandY * k, rx, ry,
+      noteX: fit.noteX * k, noteY: (y0 + y1) / 2 + fit.noteY * k - fit.noteRise,
     };
   }
 
@@ -122,22 +121,22 @@
     return node;
   }
 
-  function makeHeadset(parent, rightEar) {
-    const rear = svg('g', 'hp-headset hp-headset-rear', parent);
-    // art.js 换猫或画风时紧贴原轮廓插入头图。以耳朵为锚点，耳罩始终先于头图绘制。
-    rightEar.after(rear);
+  function makeHeadset(rear) {
+    const parent = rear.parentNode;
+    rear.setAttribute('class', 'hp-headset hp-headset-rear');
     const foreground = svg('g', 'hp-headset hp-headset-front', parent);
     const layers = [rear, foreground];
     for (const layer of layers) {
       layer.setAttribute('aria-hidden', 'true');
       layer.style.display = 'none';
     }
-    return { rear, foreground, layers };
+    return { parent, rear, foreground, layers };
   }
 
-  function layout(headset, bounds) {
+  function layout(headset, bounds, fit) {
     const { rear, foreground, color } = headset;
-    const g = headset.geometry = geometry(bounds);
+    const g = headset.geometry = geometry(bounds, fit);
+    headset.fit = fit;
     const { k, cx, cy, left, right, top, rx, ry } = g;
     const y = cy - ry; // 耳罩侧边顶端
     const ya = y - 4 * k; // 头带两端落在支架里
@@ -167,9 +166,9 @@
         <rect class="hp-bracket" x="${x - 5 * k}" y="${y - 12 * k}" width="${10 * k}" height="${20 * k}" rx="${4 * k}"/>`).join('')}`;
   }
 
-  function updatePath(headset, path) {
+  function updatePath(headset, path, fit) {
     const d = path.getAttribute('d'), transform = path.getAttribute('transform');
-    if (d === headset.d && transform === headset.transform) return;
+    if (d === headset.d && transform === headset.transform && fit === headset.fit) return;
     if (d !== headset.d) headset.bounds = headBounds(d);
     headset.d = d;
     headset.transform = transform;
@@ -183,22 +182,23 @@
       bounds.y0 = sy * bounds.y0 + f;
       bounds.y1 = sy * bounds.y1 + f;
     }
-    layout(headset, bounds);
+    layout(headset, bounds, fit);
   }
 
-  function updateBack(headset, head) {
+  function updateBack(headset, fit) {
     // 毛绒背影用独立且紧裁的头图，线条背影用原 SVG 路径。
+    const head = headset.parent;
     const image = head.querySelector(':scope > image');
     if (!image) {
       if (headset.image) headset.d = null;
       headset.image = null;
-      updatePath(headset, head.querySelector(':scope > path.coat-base'));
-    } else if (image !== headset.image) {
+      updatePath(headset, head.querySelector(':scope > path.coat-base'), fit);
+    } else if (image !== headset.image || fit !== headset.fit) {
       headset.image = image;
       const x0 = +image.getAttribute('x'), y0 = +image.getAttribute('y');
       layout(headset, {
         x0, y0, x1: x0 + +image.getAttribute('width'), y1: y0 + +image.getAttribute('height'),
-      });
+      }, fit);
     }
   }
 
@@ -221,9 +221,8 @@
   function create(ctx, { invoke, preview, color, isPushing } = {}) {
     const { S, STATES, el, headToScene, reducedMotion } = ctx;
     const start = performance.now();
-    const front = makeHeadset(el.head, document.getElementById('ear-r'));
-    const backHead = document.getElementById('strike-head-shape');
-    const back = makeHeadset(backHead, document.getElementById('strike-ear-r').parentElement);
+    const front = makeHeadset(document.getElementById('head-rear-accessories'));
+    const back = makeHeadset(document.getElementById('back-head-rear-accessories'));
     const noteLayer = svg('g', 'hp-notes', document.getElementById('fx-layer'));
     noteLayer.setAttribute('aria-hidden', 'true');
 
@@ -264,9 +263,10 @@
       mix = rm ? 0 : unit(mix + (idle ? step : -step));
       if (mix > 0) {
         const beat = (1 - Math.cos(now * 2 * Math.PI / 600)) / 2;
-        P.headRot += 3.2 * mix * Math.sin(now * 2 * Math.PI / 1200);
-        P.headY += 1.2 * mix * beat;
-        P.tailTipLift = 4 * mix * beat;
+        const { headRotation, headDip, tailLift } = window.SillySpecies.current.headphones.sway;
+        P.headRot += headRotation * mix * Math.sin(now * 2 * Math.PI / 1200);
+        P.headY += headDip * mix * beat;
+        P.tailTipLift = tailLift * mix * beat;
       }
       if (!idle) nextNote = null;
       else if (nextNote === null) scheduleNote(now);
@@ -289,8 +289,9 @@
     function render(now, dt, rm) {
       if (wearing || transition) {
         const frame = sample(transition, wearing, now, rm);
-        updatePath(front, el.headClip);
-        updateBack(back, backHead);
+        const { fit } = window.SillySpecies.current.headphones;
+        updatePath(front, el.headClip, fit);
+        updateBack(back, fit);
         for (const { layers, geometry: { w } } of [front, back]) {
           for (const layer of layers) {
             layer.style.display = !wearing && frame.done ? 'none' : '';
