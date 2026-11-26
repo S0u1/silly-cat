@@ -238,7 +238,7 @@ async function showSettings() {
     return;
   }
   const area = screen.getDisplayMatching(win.getBounds()).workArea;
-  const height = Math.max(1, Math.min(1510, area.height - 40));
+  const height = Math.max(1, Math.min(1640, area.height - 40));
   const window = new BrowserWindow({
     width: 400, height, useContentSize: true, title: '捣蛋猫 · 设置',
     show: false, frame: true, skipTaskbar: false, resizable: false,

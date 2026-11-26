@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 
 from PIL import Image, ImageOps
 
-from portrait_scene import cat_scene
+from portrait_scene import avatar_styles, dog_avatar, portrait_data, species_scene
 
 PROTOTYPE = Path(__file__).resolve().parents[1] / "prototype"
 COW = {
@@ -18,8 +18,7 @@ COW = {
     "paw-l": "paw-black.png", "paw-r": "paw-white.png",
     **{name: f"v2/{name}.png" for name in ("tail", "back-head", "ear-back", "back-body")},
 }
-# Scene coordinates: keep head (cx, cy, width), ear (x, y, width, rotate),
-# optional left-ear pivot (x, y), and shape scales in sync with coats.js.
+# Cat coordinates below mirror coats.js. The dog gets its SPEC placement from the species registry.
 PORTRAITS = {
     "cow": {}, "lihua": {}, "black": {}, "white": {},
     "calico": {"head": (400, 173.1, 266)},
@@ -28,6 +27,7 @@ PORTRAITS = {
     "siamese": {"head": (400.1, 168.9, 241.3), "ear": (272, 22, 110, 12)},
     "maine": {"head": (400.4, 178.1, 322.3), "ear": (278, 14, 110, 0), "ear_scale": 1.15},
     "sphynx": {"head": (400.1, 169.1, 255.3), "ear": (268, 34, 110, 16), "ear_scale": 1.18},
+    "tianyuan": {"species": "dog"},
 }
 
 
@@ -70,18 +70,13 @@ def portrait_image(directory, key, width, x, y=None, cy=176):
     })
 
 
-def avatar(cat, sizes):
+def cat_avatar(cat, sizes):
     # Reuse the scene's vector face and palette, including side-specific lids and irises.
-    scene = cat_scene(PROTOTYPE)
+    scene = species_scene(PROTOTYPE, "parts-cat")
     head = scene.find(".//*[@id='cat-head']")
     root = ET.Element("svg", {"xmlns": "http://www.w3.org/2000/svg",
                               "viewBox": "244 12 312 284", "data-cat": cat})
-    css = (PROTOTYPE / "style.css").read_text()
-    rules = []
-    for block in ("palette", "face"):
-        rules.append(css.split(f"/* portrait-{block}:start */")[1]
-                     .split(f"/* portrait-{block}:end */")[0].replace("html", "svg"))
-    ET.SubElement(root, "style").text = "\n".join(rules)
+    ET.SubElement(root, "style").text = avatar_styles(PROTOTYPE)
     defs = ET.SubElement(root, "defs")
     for side in ("l", "r"):
         defs.append(scene.find(f".//*[@id='clip-eye-{side}']"))
@@ -131,7 +126,37 @@ def avatar(cat, sizes):
                 child.insert(0, ET.Element("circle", {"class": "coat-rim", "cx": cx,
                                                       "cy": "178", "r": "34"}))
             pose.append(child)
-    path = PROTOTYPE / "cats" / f"{cat}.svg"
+    return root
+
+
+def fur_dog_avatar(coat, sizes):
+    portrait = next(portrait for portrait in portrait_data(PROTOTYPE) if portrait["id"] == coat)
+    directory = PROTOTYPE / "art" / coat
+    head = portrait["art"]["head"]
+    ear = portrait["art"]["ear"]
+    mirror = 2 * portrait["rig"]["turnX"]
+    head_image = portrait_image(directory, "head", head["width"], head["cx"] - head["width"] / 2, cy=head["cy"])
+    left_ear = portrait_image(directory, "ear", ear["width"], ear["x"], ear["y"])
+    left_ear.set("id", "portrait-ear")
+    right_ear = ET.Element("use", {"href": "#portrait-ear", "transform": f"translate({mirror} 0) scale(-1 1)"})
+    if "ear-r" in sizes:
+        right_ear = portrait_image(directory, "ear-r", ear["width"], mirror - ear["x"] - ear["width"], ear["y"])
+    angle = ear.get("rotate", 0)
+    if angle:
+        for image, key in ((left_ear, "ear"), (right_ear, "ear-r")):
+            if key not in sizes:
+                continue
+            w, h = sizes[key]
+            pivot = ear.get("pivot", {"x": ear["x"] + ear["width"] / 2, "y": ear["y"] + ear["width"] * h / w})
+            x, y = pivot["x"], pivot["y"]
+            transform = f"rotate({-angle} {x} {y})" if key == "ear" else f"rotate({angle} {mirror - x} {y})"
+            image.set("transform", transform)
+    return dog_avatar(PROTOTYPE, portrait, (left_ear, right_ear), head_image)
+
+
+def avatar(coat, sizes):
+    root = fur_dog_avatar(coat, sizes) if PORTRAITS[coat].get("species") == "dog" else cat_avatar(coat, sizes)
+    path = PROTOTYPE / "cats" / f"{coat}.svg"
     ET.indent(root)
     publish(path, ET.tostring(root, encoding="utf-8") + b"\n")
     print(f"{path.name}: {path.stat().st_size:,} bytes")

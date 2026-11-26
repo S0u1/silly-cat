@@ -7,15 +7,18 @@
 - `?push=0` 关闭推东西；`?pushevery=秒` 设置推杯子的随机间隔基准（默认 600 秒，URL 参数夹在 5–36000 秒）。
 - `?eyes=0` 关闭眼睛跟随，桌面设置键为 `eyesFollow`（默认开）。输入源用 `pointerAt(x, y)` 上报视口 CSS 坐标，原有 `pointerMove(dx, dy)` 继续驱动尾巴和鼠标道具。
 - `?listen=1` 一打开就戴着耳机（不播放戴上动画）；`?listen=cycle` 戴 8 秒、摘 4 秒循环，用来看动画。`?hpcolor=strawberry|mint|latte|sky` 预览耳机配色。桌面设置键为 `headphones`（默认关）和 `headphoneColor`（默认 `strawberry`）。耳机分两层画：耳罩侧面插在耳朵之后、头图之前，被头挡住内侧；头带、软垫、支架和贴纸追加在头部最后。
-- `?cat=猫ID` 选择猫，网页控制栏也可以切换。`?style=line` 使用线条画风，省略时显示毛绒画风。
+- `?cat=毛色ID` 选择宠物，例如 `?cat=tianyuan` 选择大黄，网页控制栏也可以切换。`?style=line` 使用线条画风，省略时显示毛绒画风。
 - 键盘和鼠标朝向猫摆放（猫是使用者，观众看到的键帽字是倒的）。凡是说左右的地方（`__cat.paws.left/right`、代码里的 `'L'/'R'`、`mouseSide`）都按猫自己的左右：`left` = 猫的左爪 = 观众右侧那只白爪。
-- 鼠标用尾巴操作：鼠标一动，尾巴从身后绕过身体一侧（鼠标在哪边就绕哪边）伸到前面，尾尖搭在鼠标上跟着动；点击时尾尖压到按的那颗键上，松开弹一下；鼠标停下 1.5 秒后收回身后接着摆。伸出 0.38 秒、收回 0.52 秒。两只爪子一直留在键盘上照常打字（空格默认用鼠标那一侧的爪，它正按着别的键就换另一只）。只有发飙抓鼠标砸、消气后修鼠标时才用爪子；发飙时尾巴先收回去再抓。`prefers-reduced-motion` 下尾巴直接切换，不做过渡。
-- 鼠标相关的调试字段：`__cat.paws.left/right` 是爪子此刻的目标（键名、`rest`、发飙/修理时的 `rage`/`repair` 等），不会再出现 `mouse`；`__cat.mouseSide` 仍是鼠标摆在猫的哪一侧；`__cat.tail` 是尾巴和鼠标的关系：`idle` 收在身后、`reaching` 伸出途中、`on-mouse` 搭在鼠标上、`retracting` 收回途中；`__cat.tailReach` 是伸出进度 0–1（按渲染帧推进，后台标签页里会落后）。
+- 猫用尾巴操作鼠标：鼠标一动，尾巴从身后绕过身体一侧（鼠标在哪边就绕哪边）伸到前面，尾尖搭在鼠标上跟着动；点击时尾尖压到按的那颗键上，松开弹一下；鼠标停下 1.5 秒后收回身后接着摆。伸出 0.38 秒、收回 0.52 秒。两只爪子一直留在键盘上照常打字（空格默认用鼠标那一侧的爪，它正按着别的键就换另一只）。只有发飙抓鼠标砸、消气后修鼠标时才用爪子；发飙时尾巴先收回去再抓。`prefers-reduced-motion` 下尾巴直接切换，不做过渡。
+- 猫操作鼠标的调试字段：`__cat.paws.left/right` 是爪子此刻的目标（键名、`rest`、发飙/修理时的 `rage`/`repair` 等），不会再出现 `mouse`；`__cat.mouseSide` 仍是鼠标摆在猫的哪一侧；`__cat.tail` 是尾巴和鼠标的关系：`idle` 收在身后、`reaching` 伸出途中、`on-mouse` 搭在鼠标上、`retracting` 收回途中；`__cat.tailReach` 是伸出进度 0–1（按渲染帧推进，后台标签页里会落后）。
 - 结构：`input.js` 把浏览器键鼠事件翻译成抽象事件；`cat.js` 只消费这些事件（状态机 + 渲染）；`keyboard.js` 画键盘、查键位；`sleep.js`（睡眠三阶段）、`fatigue.js`（疲劳、发飙、罢工、修理）、`push.js`（推杯子、掉落和返回）和 `statusbar.js`（状态条）是挂在 `cat.js` 钩子上的扩展模块。
 - 调试入口 `?demo=<阶段>`：把猫直接摆到并停在某个阶段，不受计时影响；加 `&loop=1` 循环播放该段动画，加 `&at=毫秒` 冻结在时间轴上的某一刻（逐帧检查用）。
   - `tired` 累了　`sigh` 叹气循环（每 1.6 秒一次）　`angry` 生气（可以照常打字看点头）
   - `rage` 整段发飙（砸键盘、抓起鼠标砸碎；不循环时之后进入罢工）　`strike` 罢工（一直罢工，不会消气）　`repair` 消气后自己修好
   - `tail-mouse` 尾巴操作鼠标（5 秒一轮：静止 0.3 秒 → 鼠标开始动、尾巴伸出 → 跟着鼠标动几下 → 停 → 2.25 秒点一下左键 → 停够 1.5 秒收回 → 静止）。不带 `loop` 时放一遍后交还给真实输入
+  - `?cat=tianyuan&demo=paw-mouse` 预览鼠标侧的狗爪。用 `&at=1000` 看跟随、`&at=2300` 看点击、`&at=4260` 看收回。真实输入时同侧按键优先，松键后若鼠标仍活跃，狗爪回到鼠标上。
+  - `?cat=tianyuan&demo=tilt&at=900` 预览歪头。正常运行时，狗在清醒且键鼠静止至少 6 秒后才可能歪头，每段空闲最多一次，两次至少相隔 20 秒。
+  - `?demo=pet&at=950` 预览所选宠物的摸头表情。大黄眯眼、伸舌、快速摇尾。
   - `?demo=push` 播放一遍推杯子，`&loop=1` 缩短等待并循环播放，`&at=毫秒` 查看固定时刻。`?demo=push-back` 直接播放杯子在原位淡入。调试字段为 `__cat.pushPhase`、`__cat.mugOffset` 和 `__cat.nextPushIn`。
   - `drool` 流口水　`slumped` 趴在键盘上　`slump-in` 趴下的过渡（坐着睡 0.3 秒 → 按当前趴下方式趴下 → 趴好停 0.9 秒 → 0.4 秒快速起身）　`wake-marks` 刚醒、脸上带压痕
 - 趴下方式：每次进入趴下阶段随机选一种（各一半），`__cat.slumpStyle` 是当次实际用的方式。`?slump-style=nod|melt` 强制指定（调试用），可以和 `?demo=slump-in`、`?demo=slumped` 一起用；demo 不带它时在页面加载时随机选一次。两种都不伸手，爪子留在原位：
@@ -129,7 +132,11 @@ Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所
 
 ## 物种层
 
-设置中的 `cat` 仍保存毛色 ID，缺失或无效时回退到 `cow`。网页和设置页都加载 `species.js` 注册表和 `species-cat.js` 猫定义。`SillyCoats.list()` 返回 `{ id, name, species }`。网页初选、桌面设置变更、切换画风都经过 `SillyCoats.apply`，由它选择对应物种、安装素材并应用体型。
+设置中的 `cat` 仍保存毛色 ID，缺失或无效时回退到 `cow`。网页和设置页都加载 `species.js` 注册表、`species-cat.js` 猫定义和 `species-dog.js` 狗定义。`SillyCoats.list()` 返回 `{ id, name, species }`。网页初选、桌面设置变更、切换画风都经过 `SillyCoats.apply`，由它选择对应物种、安装素材并应用体型。
+
+大黄（`tianyuan`）使用 `dog` 物种。键位、肩和落爪位置共用猫的坐姿骨架，狗的头、眼耳、尾巴和睡眠接触点使用自己的参数。尾根在身体左后方，打字越密，卷尾摇得越快，睡着后停下。大黄沿用现有疲劳、发飙、罢工和修理流程，跳过推杯动作。大黄在两种画风下都使用毛绒部件，部件缺失时显示矢量造型。调试时可用 `__cat.tailWagHz` 查看摇尾频率、`__cat.tilt` 查看歪头角度；鼠标侧前爪搭在鼠标上时，其 `__cat.paws` 目标为 `mouse`。
+
+截图工具默认仍截十只猫。用 `python3 tools/regress_shots.py capture --offline-webkit --pets dogs --out .art-src/regress/dogs-b2` 单独截狗，两个画风的原图分别在 `tianyuan/fur/` 和 `tianyuan/line/`，并排对照见 `overview.jpg`。`--pets all` 同时截取猫和狗。输出目录须位于 `.art-src/regress/` 中，且没有旧 PNG。
 
 新增物种时，在两个页面的 `coats.js` 之前加载新定义脚本，调用 `SillySpecies.register(id, definition)`。通过 `get(id)` 读取指定定义，`current` 读取当前定义。`select(id)` 切换五官和矢量部件，同一物种换毛色时复用已装部件。动画帧和动作模块使用当前定义。坐标沿用 800 × 620 舞台，角度为度，时长为毫秒。
 
@@ -150,6 +157,8 @@ Tauri 2.12 起不再支持 Win7，Rust 1.78 起的标准库也要求 Win10。所
 ## 手绘毛发部件
 
 网页与桌面主窗口都通过 `SillyCoats.apply(id)` 换猫。`index.html` 先加载 `art.js`、各猫的尺寸清单，再加载 `coats.js`。只有同时具备毛色的 `art` 配置和清单条目的部件才会替换对应矢量。切走时移除图片和切片，恢复原花纹与轮廓。眼睛、鼻口、牙齿、胡须、腮红、鼻边黑点、键鼠、杯子和特效继续由矢量绘制。头图鼓腮时绕 (400, 205) 缩放，压痕仍使用动态的头部裁剪路径。
+
+大黄的空清单已接在 `prototype/art/tianyuan/manifest.js`。美术部件齐备后，运行 `python3 tools/prepare_art.py --cat tianyuan --source .art-src/tianyuan` 即可更新 WebP、清单和设置页头像。两种画风共用 `prototype/cats/tianyuan.svg`。
 
 新增一只猫时，依次完成以下步骤。
 

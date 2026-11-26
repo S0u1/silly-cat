@@ -5,13 +5,13 @@ import { setImmediate as flush } from 'node:timers/promises';
 import { createContext, Script } from 'node:vm';
 
 const read = (file) => readFileSync(new URL(`../prototype/${file}`, import.meta.url), 'utf8');
-const scripts = new Map(['species.js', 'species-cat.js', 'headphones.js', 'coats.js', 'art.js', 'settings.js'].map((file) =>
+const scripts = new Map(['species.js', 'species-cat.js', 'species-dog.js', 'headphones.js', 'coats.js', 'art.js', 'settings.js'].map((file) =>
   [file, new Script(read(file), { filename: file })]));
 
 function load(files, globals = {}) {
   const sandbox = createContext(globals);
   sandbox.window = sandbox;
-  for (const file of ['species.js', 'species-cat.js', ...files]) scripts.get(file).runInContext(sandbox);
+  for (const file of ['species.js', 'species-cat.js', 'species-dog.js', ...files]) scripts.get(file).runInContext(sandbox);
   return sandbox;
 }
 
@@ -182,7 +182,7 @@ test('saved headphone colors survive sanitization and missing or invalid values 
   assert.equal(settings.sanitize({}).headphoneColor, 'strawberry');
 });
 
-test('all ten real coat outlines give both cups eye clearance and a centered band in each style', () => {
+test('all ten cat coat outlines give both cups eye clearance and a centered band in each style', () => {
   const d = read('index.html').match(/id="clip-head-path" d="([^"]+)"/)[1];
   const elements = new Map();
   function fakeElement() {
@@ -216,9 +216,10 @@ test('all ten real coat outlines give both cups eye clearance and a centered ban
       querySelectorAll: () => [],
     },
   });
-  assert.equal(SillyCoats.list().length, 10);
+  const cats = SillyCoats.list().filter(({ species }) => species === 'cat');
+  assert.equal(cats.length, 10);
   for (const style of ['fur', 'line']) {
-    for (const { id } of SillyCoats.list()) {
+    for (const { id } of cats) {
       const coat = SillyCoats.setArtStyle(style, id);
       const label = `${id}/${style}`;
       const path = element('clip-head-path').getAttribute('d');
@@ -235,4 +236,14 @@ test('all ten real coat outlines give both cups eye clearance and a centered ban
       assert.ok(Math.abs(ry - 35 * k) < 1e-9, label);
     }
   }
+});
+
+test('both dog cups clear the eyes and the band is centered over the muzzle', () => {
+  const dog = load([]).SillySpecies.get('dog');
+  const { eyes, head } = dog.rig;
+  const bounds = HP.headBounds(head.path(0));
+  const cups = HP.geometry(bounds, dog.headphones.fit);
+  assert.ok(cups.left + cups.rx < eyes.centers.L.x - eyes.radius);
+  assert.ok(cups.right - cups.rx > eyes.centers.R.x + eyes.radius);
+  assert.equal(cups.cx, (eyes.centers.L.x + eyes.centers.R.x) / 2);
 });

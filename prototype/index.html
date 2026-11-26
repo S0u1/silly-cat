@@ -75,6 +75,10 @@
       <ellipse class="blush" cx="318" cy="232" rx="13" ry="7"/>
       <ellipse class="blush" cx="484" cy="226" rx="13" ry="7"/>
     </g>
+    <g id="face-dog-blush" data-species-face="dog" style="display:none">
+      <ellipse class="blush" cx="325" cy="220" rx="14" ry="7"/>
+      <ellipse class="blush" cx="475" cy="220" rx="14" ry="7"/>
+    </g>
 
     <!-- 左眼（黑斑里） -->
     <g id="eye-l-open">
@@ -119,6 +123,16 @@
       <path class="ink-thin coat-mouth-line" fill="none" d="M 400 219 L 400 228 M 383 227 Q 391 237 400 228 Q 410 237 420 224"/>
       <path class="ink-thin coat-nose" d="M 389 206 Q 400 201 411 206 Q 409 216 400 220 Q 391 216 389 206 Z"/>
     </g>
+    <g id="face-dog" data-species-face="dog" style="display:none">
+      <g id="dog-tongue" style="display:none">
+        <path class="ink-thin" fill="#552e2d" d="M 376 236 Q 380 240 386 240 Q 394 240 400 233 Q 406 240 414 240 Q 420 240 424 236 C 419 258 381 258 376 236 Z"/>
+        <path class="ink-thin" fill="#ed929f" d="M 389 247 Q 400 241 411 247 V 257 C 411 271 389 271 389 257 Z"/>
+        <path d="M 400 250 V 261" fill="none" stroke="#bc6372" stroke-width="2" stroke-linecap="round"/>
+      </g>
+      <path class="ink-thin coat-mouth-line" fill="none" d="M 400 225 V 233 M 376 236 Q 380 240 386 240 Q 394 240 400 233 Q 406 240 414 240 Q 420 240 424 236"/>
+      <path class="ink-thin coat-nose" d="M 383 211 C 383 206 389 204 400 204 C 411 204 417 206 417 211 C 417 217 406 224 400 224 C 394 224 383 217 383 211 Z"/>
+      <path d="M 391 209 Q 397 206 403 208" fill="none" stroke="#fff" opacity=".22" stroke-width="2" stroke-linecap="round"/>
+    </g>
 
     <!-- 以下由 sleep.js / fatigue.js 控制显示 -->
     <!-- 口水：半透明浅蓝白，细描边 -->
@@ -130,7 +144,14 @@
     <!-- 趴醒后脸颊上的键帽压痕：只在贴键盘的那侧脸颊，裁在头形里 -->
     <g id="imprint" style="display:none" clip-path="url(#clip-head)">
       <ellipse class="imprint-flush"/>
-      <g id="imprint-dents" data-part="imprint-dents">
+      <g id="imprint-dents">
+        <g transform="rotate(-14 300 232)"><rect class="dent" x="284" y="224" width="15" height="13" rx="4"/><rect class="dent-in" x="285.6" y="225.6" width="12" height="10" rx="3"/></g>
+        <g transform="rotate(-8 318 230)"><rect class="dent" x="302" y="223" width="15" height="13" rx="4"/><rect class="dent-in" x="303.6" y="224.6" width="12" height="10" rx="3"/>
+          <text id="imprint-letter" class="dent-letter" x="0" y="0" transform="translate(309.6 233.4) scale(-1 1)">K</text></g>
+        <g transform="rotate(-2 336 232)"><rect class="dent" x="320" y="225" width="15" height="13" rx="4"/><rect class="dent-in" x="321.6" y="226.6" width="12" height="10" rx="3"/></g>
+        <g transform="rotate(-18 292 249)"><rect class="dent" x="284" y="241" width="15" height="13" rx="4"/><rect class="dent-in" x="285.6" y="242.6" width="12" height="10" rx="3"/></g>
+        <g transform="rotate(-10 310 250)"><rect class="dent" x="302" y="242" width="15" height="13" rx="4"/><rect class="dent-in" x="303.6" y="243.6" width="12" height="10" rx="3"/></g>
+        <g transform="rotate(-4 330 255)"><rect class="dent" x="322" y="247" width="13" height="11" rx="4"/><rect class="dent-in" x="323.6" y="248.6" width="10" height="8" rx="3"/></g>
       </g>
     </g>
     <!-- 被压扁后翘起的两根毛（在轮廓上） -->
@@ -300,14 +321,40 @@
       <path class="brow-light" d="M 321 138 L 363 151"/>
       <path class="brow" d="M 479 138 L 437 151"/>
     </g>
-    <g data-part="imprint-dents">
-      <g transform="rotate(-14 300 232)"><rect class="dent" x="284" y="224" width="15" height="13" rx="4"/><rect class="dent-in" x="285.6" y="225.6" width="12" height="10" rx="3"/></g>
-      <g transform="rotate(-8 318 230)"><rect class="dent" x="302" y="223" width="15" height="13" rx="4"/><rect class="dent-in" x="303.6" y="224.6" width="12" height="10" rx="3"/>
-        <text id="imprint-letter" class="dent-letter" x="0" y="0" transform="translate(309.6 233.4) scale(-1 1)">K</text></g>
-      <g transform="rotate(-2 336 232)"><rect class="dent" x="320" y="225" width="15" height="13" rx="4"/><rect class="dent-in" x="321.6" y="226.6" width="12" height="10" rx="3"/></g>
-      <g transform="rotate(-18 292 249)"><rect class="dent" x="284" y="241" width="15" height="13" rx="4"/><rect class="dent-in" x="285.6" y="242.6" width="12" height="10" rx="3"/></g>
-      <g transform="rotate(-10 310 250)"><rect class="dent" x="302" y="242" width="15" height="13" rx="4"/><rect class="dent-in" x="303.6" y="243.6" width="12" height="10" rx="3"/></g>
-      <g transform="rotate(-4 330 255)"><rect class="dent" x="322" y="247" width="13" height="11" rx="4"/><rect class="dent-in" x="323.6" y="248.6" width="10" height="8" rx="3"/></g>
+  </svg>
+</template>
+
+<template id="parts-dog">
+  <svg>
+    <g data-part="ear-l">
+      <path class="coat-ear ink dog-ear-outline"/>
+      <path class="coat-inner-ear" d="M 304 106 C 300 88 301 62 307 47 Q 329 66 345 100 Z"/>
+      <path fill="var(--coat-light)" opacity=".65" d="M 309 106 Q 310 92 307 84 L 317 91 L 318 82 L 332 99 Z"/>
+    </g>
+    <g data-part="back-ear-l">
+      <path class="coat-ear ink dog-ear-outline"/>
+    </g>
+    <g data-part="ear-r">
+      <g transform="translate(800 0) scale(-1 1)">
+        <path class="coat-ear ink dog-ear-outline"/>
+        <path class="coat-inner-ear" d="M 304 106 C 300 88 301 62 307 47 Q 329 66 345 100 Z"/>
+        <path fill="var(--coat-light)" opacity=".65" d="M 309 106 Q 310 92 307 84 L 317 91 L 318 82 L 332 99 Z"/>
+      </g>
+    </g>
+    <g data-part="back-ear-r">
+      <path class="coat-ear ink dog-ear-outline" transform="translate(800 0) scale(-1 1)"/>
+    </g>
+    <g data-part="paw-l paw-r">
+      <path class="coat-light ink" d="M -26 5 C -26 -9 -16 -17 0 -17 C 16 -17 26 -9 26 5 Q 26 15 17 15 Q 11 20 5 17 Q 0 21 -5 17 Q -11 20 -17 15 Q -26 15 -26 5 Z"/>
+      <g fill="var(--coat-pad, #cfab82)">
+        <ellipse cx="-17" cy="6" rx="4" ry="4.5"/>
+        <ellipse cx="-6" cy="9" rx="4.5" ry="5"/>
+        <ellipse cx="6" cy="9" rx="4.5" ry="5"/>
+        <ellipse cx="17" cy="6" rx="4" ry="4.5"/>
+      </g>
+    </g>
+    <g data-part="brows">
+      <path class="brow" d="M 329 130 Q 342 127 368 141 M 471 130 Q 458 127 432 141"/>
     </g>
   </svg>
 </template>
@@ -315,6 +362,7 @@
 <script src="keyboard.js"></script>
 <script src="species.js"></script>
 <script src="species-cat.js"></script>
+<script src="species-dog.js"></script>
 <script src="art.js"></script>
 <script src="art/cow/manifest.js"></script>
 <script src="art/orange/manifest.js"></script>
@@ -326,6 +374,7 @@
 <script src="art/white/manifest.js"></script>
 <script src="art/maine/manifest.js"></script>
 <script src="art/sphynx/manifest.js"></script>
+<script src="art/tianyuan/manifest.js"></script>
 <script src="coats.js"></script>
 <script src="cat.js"></script>
 <script src="sleep.js"></script>

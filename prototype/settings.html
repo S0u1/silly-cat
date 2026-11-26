@@ -48,7 +48,10 @@
   input[aria-invalid="true"] { border-color: var(--error); }
   input[type="checkbox"] { width: 18px; height: 18px; margin: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
   input[type="range"] { width: 150px; margin: 0; padding: 0; border: 0; background: none; accent-color: var(--accent); }
-  #cat-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 8px; }
+  .pet-group { margin-top: 8px; }
+  .pet-group .head { justify-content: flex-start; gap: 8px; margin-bottom: 2px; }
+  #dogs-hint { margin-top: 0; }
+  .pet-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
   .cat-option {
     position: relative;
     display: flex;
@@ -141,20 +144,30 @@
   </div>
   <p id="perm-msg"></p>
 </section>
-<h1>猫的设置</h1>
+<h1>桌宠设置</h1>
 <form id="form" novalidate autocomplete="off">
   <div class="row">
     <div class="head">
-      <strong id="cat-label">换只猫</strong>
+      <strong id="cat-label">换只桌宠</strong>
       <span class="field">
         <label for="f-art-style">画风</label>
         <select id="f-art-style" name="artStyle">
           <option value="fur">毛绒</option>
           <option value="line">线条</option>
         </select>
+        <span id="dogs-hint" class="hint" hidden>狗狗暂时只有毛绒版</span>
       </span>
     </div>
-    <div id="cat-options" role="radiogroup" aria-labelledby="cat-label"></div>
+    <div id="cat-options" role="radiogroup" aria-labelledby="cat-label">
+      <div class="pet-group" role="group" aria-labelledby="cats-label">
+        <div class="head"><strong id="cats-label">猫猫</strong></div>
+        <div id="options-cat" class="pet-grid"></div>
+      </div>
+      <div class="pet-group" role="group" aria-labelledby="dogs-label">
+        <div class="head"><strong id="dogs-label">狗狗</strong></div>
+        <div id="options-dog" class="pet-grid"></div>
+      </div>
+    </div>
   </div>
   <div class="row" data-key="sleep">
     <div class="head"><label for="f-sleep">多久不操作就睡着</label>
@@ -257,6 +270,7 @@
 <script src="headphones.js"></script>
 <script src="species.js"></script>
 <script src="species-cat.js"></script>
+<script src="species-dog.js"></script>
 <script src="coats.js"></script>
 <script>
 (function () {
@@ -268,6 +282,7 @@
   const statusEl = document.getElementById('status');
   const catOptions = document.getElementById('cat-options');
   const artStyleInput = document.getElementById('f-art-style');
+  const dogsHint = document.getElementById('dogs-hint');
   const hpColors = document.getElementById('hp-colors');
   const hpColorOptions = document.getElementById('hp-color-options');
   for (const [id, name] of Object.entries(S.HEADPHONE_COLORS)) {
@@ -280,8 +295,7 @@
     hpColorOptions.append(label);
   }
   const avatars = new Map();
-  const catNames = new Map(window.SillyCoats.list().map(({ id, name }) => [id, name]));
-  for (const id of S.PETS) {
+  for (const { id, name, species } of window.SillyCoats.list()) {
     const label = document.createElement('label');
     label.className = 'cat-option';
     const input = document.createElement('input');
@@ -290,11 +304,11 @@
     input.value = id;
     const img = document.createElement('img');
     img.alt = '';
-    avatars.set(id, img);
-    const name = document.createElement('span');
-    name.textContent = catNames.get(id);
-    label.append(input, img, name);
-    catOptions.append(label);
+    avatars.set(id, { img, species });
+    const caption = document.createElement('span');
+    caption.textContent = name;
+    label.append(input, img, caption);
+    document.getElementById(`options-${species}`).append(label);
   }
   const rows = {};
   for (const k of S.KEYS) {
@@ -319,8 +333,10 @@
 
   const fmt = (v) => String(Math.round(v * 100) / 100);
   function refreshAvatars(style) {
-    const directory = style === 'line' ? 'cats/line' : 'cats';
-    for (const [id, img] of avatars) img.src = `${directory}/${id}.svg`;
+    for (const [id, { img, species }] of avatars) {
+      const directory = species === 'cat' && style === 'line' ? 'cats/line' : 'cats';
+      img.src = `${directory}/${id}.svg`;
+    }
   }
   function fill(s) {
     form.elements.cat.value = s.cat;
@@ -353,6 +369,9 @@
     return s;
   }
   function refreshHints(s) {
+    dogsHint.hidden = avatars.get(s.cat)?.species !== 'dog';
+    if (dogsHint.hidden) artStyleInput.removeAttribute('aria-describedby');
+    else artStyleInput.setAttribute('aria-describedby', dogsHint.id);
     const sleep = Number.isFinite(s.sleep) && s.sleep > 0 ? s.sleep : S.DEFAULTS.sleep;
     for (const b of document.querySelectorAll('[data-auto]')) b.textContent = fmt(S.AUTO[b.dataset.auto] * sleep);
     rows.pushEvery.input.disabled = !s.push;
@@ -379,7 +398,7 @@
   function save(s) {
     if (!invoke) { setStatus('不在桌面版里，改动不会保存', 'bad'); return; }
     invoke('save_settings', { settings: s })
-      .then(() => setStatus('已保存，猫那边已生效', 'ok'))
+      .then(() => setStatus('已保存，桌宠已更新', 'ok'))
       .catch((e) => setStatus('保存失败：' + e, 'bad'));
   }
 
@@ -544,8 +563,8 @@
   // ---------- 收不到键盘输入时的处理区 ----------
   // 每 2 秒问一次 Rust（input_status.needs_permission），只有 macOS 上收不到按键时显示；正常后自动收起。
   // 展开授权区时加高，收起时回到基础高度；两者都为屏幕工作区留 40 px，内容超出时可滚动。
-  // BASE_H 和 main.rs 的 SETTINGS_HEIGHT 一致。
-  const BASE_W = 400, BASE_H = 1510;
+  // BASE_H 与 Tauri 和 Electron 创建设置窗口时使用的逻辑高度一致。
+  const BASE_W = 400, BASE_H = 1640;
   const perm = document.getElementById('perm');
   const permMsg = document.getElementById('perm-msg');
   function setPermMsg(text, bad) { permMsg.textContent = text; permMsg.className = bad ? 'bad' : ''; }

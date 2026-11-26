@@ -287,6 +287,29 @@ html:not([data-cat="maine"][data-art-style="line"]) #scene [data-coat-pattern="m
 
 /* portrait-face:end */
 
+/* portrait-dog:start */
+html[data-cat="tianyuan"] {
+  --coat-base: #d9a24e;
+  --coat-dark: #b97e33;
+  --coat-back: #c48a3a;
+  --coat-light: #f3ddb0;
+  --coat-muzzle: #8a5a2b;
+  --coat-ear: var(--coat-base);
+  --coat-inner-ear: #e8b9a0;
+  --coat-paw-l: var(--coat-light);
+  --coat-paw-r: var(--coat-light);
+  --coat-pad: #cfab82;
+  --coat-iris: #956337;
+  --coat-nose: #251c17;
+  --coat-mouth-line: #4c3022;
+  --coat-tail: url(#coat-tianyuan-tail);
+  --coat-tail-tip: #e9cb93;
+  --coat-blush-opacity: 0.35;
+}
+/* portrait-dog:end */
+
+html:not([data-cat="tianyuan"]) #scene [data-coat-pattern="tianyuan"] { display: none; }
+
 /* 正面尾巴：实心轮廓（cat.js 按中线算出粗细渐变、圆尾尖）；白尾尖往里缩半个描边宽度 */
 #scene .tail-body { fill: var(--coat-tail); stroke: var(--ink); stroke-width: 5; stroke-linejoin: round; }
 #scene .tail-tip-fill { fill: var(--coat-tail-tip); }
@@ -310,6 +333,11 @@ html:is([data-cat="lihua"], [data-cat="maine"][data-art-style="line"]) #scene .a
 #scene .toe-l, #scene .toe-r { fill: none; stroke-width: 3; stroke-linecap: round; opacity: var(--coat-toe-opacity); }
 #scene .toe-l { stroke: var(--coat-toe-l); }
 #scene .toe-r { stroke: var(--coat-toe-r); }
+
+html[data-cat="tianyuan"] #scene .arm-outline { stroke-width: 43; }
+html[data-cat="tianyuan"] #scene :is(.arm-fill-l, .arm-fill-r) { stroke: url(#coat-tianyuan-arm); stroke-width: 33; }
+html[data-cat="tianyuan"] #scene .tail-outline { stroke-width: 32; }
+html[data-cat="tianyuan"] #scene :is(.tail-fill, .tail-tip) { stroke-width: 22; }
 
 #scene .z { fill: var(--ink); font-size: 24px; font-weight: 800; font-family: inherit; }
 

@@ -23,15 +23,15 @@
       for (const layer of document.querySelectorAll('[data-species-face]')) {
         layer.style.display = layer.dataset.speciesFace === id ? '' : 'none';
       }
+      const template = document.getElementById(current.scene.template);
+      for (const slot of document.querySelectorAll('#scene [data-part]')) {
+        const part = template.content.querySelector('[data-part~="' + slot.dataset.part + '"]');
+        slot.replaceChildren(...(part ? part.cloneNode(true).childNodes : []));
+      }
       for (const [selector, attrs] of current.scene.attributes(current.rig)) {
         for (const node of document.querySelectorAll(selector)) {
           for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
         }
-      }
-      const template = document.getElementById(current.scene.template);
-      for (const slot of document.querySelectorAll('#scene [data-part]')) {
-        const part = template.content.querySelector('[data-part="' + slot.dataset.part + '"]');
-        slot.replaceChildren(...(part ? part.cloneNode(true).childNodes : []));
       }
       installed = current;
       return current;

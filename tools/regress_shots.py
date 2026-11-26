@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlencode
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageDraw
 
 from readme_images import CATS, ROOT, renderer
 
@@ -20,6 +20,35 @@ DEMOS = {
     'rage': [0, 900, 2100, 2960], 'strike': [0, 150, 1600],
     'repair': [0, 220, 1100, 2110],
 }
+
+
+DOGS = ['tianyuan']
+DOG_DEMOS = {
+    'paw-mouse': [0, 530, 1000, 2300, 4260, 4900],
+    'tilt': [0, 900, 1850], 'pet': [0, 950],
+    **{name: times for name, times in DEMOS.items()
+       if name not in ('tail-mouse', 'push', 'push-back')},
+}
+
+
+def dog_overview(dest, pet):
+    # Show matching poses side by side, retaining full-resolution frames in each folder.
+    poses = ['idle', *(f'type-{key}' for key in 'ajf'),
+             *(f'pointer-{i}' for i in range(4)), 'gaze-left', 'gaze-right',
+             *(f'{name}-{at}' for name, times in DOG_DEMOS.items() for at in times),
+             'slumped-nod', 'slumped-melt', 'headphones-front', 'headphones-back']
+    width, height, pairs_per_row = 162, 146, 5
+    rows = (len(poses) + pairs_per_row - 1) // pairs_per_row
+    sheet = Image.new('RGB', (width * pairs_per_row * 2, height * rows), '#f4f1ed')
+    draw = ImageDraw.Draw(sheet)
+    for i, pose in enumerate(poses):
+        for j, style in enumerate(('fur', 'line')):
+            x, y = ((i % pairs_per_row) * 2 + j) * width, i // pairs_per_row * height
+            with Image.open(dest / pet / style / f'{pose}.png') as frame:
+                frame.thumbnail((width, height - 22), Image.Resampling.LANCZOS)
+                sheet.paste(frame, (x, y))
+            draw.text((x + 6, y + height - 19), f'{style}  {pose}', fill='#302e2b')
+    sheet.save(dest / 'overview.jpg', quality=85)
 
 
 def capture_pair(open_page, dest, cat, style):
@@ -45,11 +74,16 @@ def capture_pair(open_page, dest, cat, style):
                 buttons:{buttons},clientX:innerWidth*{x},clientY:innerHeight*{y}}})), advance(12)""".replace('\n', ' '))
             shot().save(folder / f'pointer-{i}.png')
     capture_gaze(open_page, dest, cat, style)
-    for demo, times in DEMOS.items():
+    for demo, times in (DOG_DEMOS if cat in DOGS else DEMOS).items():
         for at in times:
             with page(demo=demo, at=at) as (ev, shot):
                 ev(f"advance({max(1, round(at * .06))})")
                 shot().save(folder / f'{demo}-{at}.png')
+    if cat in DOGS:
+        for pose in ('nod', 'melt'):
+            with page(demo='slumped', **{'slump-style': pose}) as (ev, shot):
+                ev("advance(90)")
+                shot().save(folder / f'slumped-{pose}.png')
     for face, params in [('front', {}), ('back', {'demo': 'strike'})]:
         with page(listen=1, hpcolor='mint', **params) as (ev, shot):
             ev('advance(40)')
@@ -84,11 +118,24 @@ def capture(args):
                             '#scene .key { transition: none !important; animation: none !important }'""")
                     if ev("typeof __cat") != 'object':
                         raise RuntimeError(f'{pair}: stage failed to initialize')
+                    if ev("document.documentElement.dataset.cat") != pair[0]:
+                        raise RuntimeError(f'{pair}: requested coat did not load')
+                    ev("""(window.captureErrors = [], window.addEventListener('error',
+                        e => captureErrors.push(e.message)), console.error = (...args) =>
+                        captureErrors.push(args.map(String).join(' ')), true)""".replace('\n', ' '))
                     yield ev, shot
+                    errors = ev("window.captureErrors")
+                    if errors:
+                        raise RuntimeError(f'{pair}: {errors}')
             capture_pair(regression_page, dest, *pair)
-    pairs = [(cat, style) for cat, _ in CATS for style in ('fur', 'line')]
+    pets = [cat for cat, _ in CATS] if args.pets in ('cats', 'all') else []
+    if args.pets in ('dogs', 'all'):
+        pets.extend(DOGS)
+    pairs = [(cat, style) for cat in pets for style in ('fur', 'line')]
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         list(pool.map(run, pairs))
+    if args.pets in ('dogs', 'all'):
+        dog_overview(dest, 'tianyuan')
     print(f'{len(list(dest.rglob("*.png")))} screenshots')
 
 
@@ -126,6 +173,7 @@ if __name__ == '__main__':
     cap = commands.add_parser('capture')
     cap.add_argument('--out', type=Path, required=True)
     cap.add_argument('--offline-webkit', action='store_true')
+    cap.add_argument('--pets', choices=('cats', 'dogs', 'all'), default='cats')
     cap.add_argument('--jobs', type=int, default=4)
     cap.set_defaults(action=capture)
     cmp = commands.add_parser('compare')

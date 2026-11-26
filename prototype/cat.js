@@ -16,19 +16,25 @@
     'Tab', 'CapsLock', 'Escape', 'ShiftLeft', 'ControlLeft', 'AltLeft', 'MetaLeft',
   ]);
 
-  const currentRig = () => window.SillySpecies.current.rig;
+  const currentSpecies = () => window.SillySpecies.current;
+  const currentRig = () => currentSpecies().rig;
   const GAZE_HOLD_MS = 3000, GAZE_FALLOFF = 160;
   const GAZE_TAU = 60, GAZE_SLOW_TAU = 3 * GAZE_TAU;
   // mouseSide 也按猫的视角：'right' = 猫的右手边 = 画面里键盘左侧
   const MOUSE_HOME = { right: { x: 104, y: 484 }, left: { x: 696, y: 484 } };
   const REST_KEY = { L: 'KeyG', R: 'KeyK' };
-  const MOUSE_HOLD_MS = 1500;  // 鼠标停下这么久后尾巴收回身后
+  const MOUSE_HOLD_MS = 1500;
   const RELEASE_MS = 120;
   const EXCITE_COUNT = 6;     // 一秒内超过 6 次
+  const TYPING_WAG_MS = 3000, TYPING_WAG_MAX_HZ = 8;
+  const TILT_IDLE_MS = 6000, TILT_COOLDOWN_MS = 20000;
+  const TILT_MS = 1500, TILT_EASE_MS = 200, TILT_DEGREES = 12;
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const approach = (cur, target, dt, tau) => cur + (target - cur) * (1 - Math.exp(-dt / tau));
   const f1 = (v) => (Math.round(v * 10) / 10).toString();
+  const smooth = (v) => { const t = clamp(v, 0, 1); return t * t * (3 - 2 * t); };
+  const tiltAt = (elapsed) => TILT_DEGREES * smooth(elapsed / TILT_EASE_MS) * smooth((TILT_MS - elapsed) / TILT_EASE_MS);
   // Windows 上不跟随系统：浏览器内核在 Windows 上把「在 Windows 中显示动画」关掉当成减少动画，
   // 而这个开关常被「最佳性能」、远程桌面、虚拟机顺手关掉，用户并没有要求少看动画。
   // 跟随时键名不飘、不推杯子、不砸键盘，猫就少了大半表演。macOS 的「减弱动态效果」是专门打开的辅助功能，照常跟随。
@@ -130,9 +136,10 @@
     return resample(pts, 8);
   }
 
-  // ?demo=tail-mouse 时间轴（毫秒）：静止 -> 鼠标开始动、尾巴伸出 -> 跟着动几下 -> 停 -> 点一下 -> 停够 1.5 秒收回 -> 静止
-  const TD = { move0: 300, move1: 2000, down: 2250, up: 2400, period: 5000 };
-  TD.off = TD.up + MOUSE_HOLD_MS;
+  // 鼠标演示共用时间轴：静止 → 伸过去跟着动 → 点击 → 停够 1.5 秒 → 收回。
+  const MD = { move0: 300, move1: 2000, down: 2250, up: 2400, off: 2400 + MOUSE_HOLD_MS, period: 5000 };
+  const TILT_DEMO_START = 300, PET_DEMO_START = 300, PET_DEMO_END = 1800;
+  const MOTION_DEMO_PERIODS = { 'paw-mouse': MD.period, tilt: 2300, pet: 2300 };
 
   // ---------- 浮起键帽上显示的文字 ----------
   // 所有"显示什么"都集中在这里：以后做隐私模式（只显示左右手、不显示键名）只改这一个函数。
@@ -243,6 +250,7 @@
       mouse: $('mouse'), mouseBtn: { 0: $('mouse-btn-l'), 2: $('mouse-btn-r') },
       zzz: [$('z1'), $('z2'), $('z3')],
       eye: { L: eyeEls('l'), R: eyeEls('r') },
+      tongue: document.getElementById('dog-tongue'),
       headShape: [$('head-fill'), $('head-line')],
       headClip: $('clip-head-path'),
       armG: { l: $('arm-l'), r: $('arm-r') },
@@ -266,8 +274,9 @@
       pupilR: initialRig.eyes.pupil.rest,
       nextBlink: t0 + 3000 + Math.random() * 3000, blinkUntil: 0,
       twitch: { ear: null, start: -1e9 }, nextTwitch: t0 + 5000 + Math.random() * 5000,
-      tailPhase: 0, tailAngle: 0, eyeMode: null,
+      tailPhase: 0, tailAngle: 0, tailTypingMix: 0, tailWagSpeed: 0, eyeMode: null,
       tailReach: 0, tailWant: false, tailSide: mouseSide, tailLag: null, tailPress: 0, tailPressX: 0, tailTapAt: -1e9, tailFrontOn: null,
+      tiltIdle: null, tiltStart: -Infinity, tiltSide: 0, tiltAngle: 0,
       headBaseRot: initialRotation, headBaseX: 0, headBaseY: 0,
       headTf: { tx: 0, ty: 0, rot: initialRotation, sx: 1, sy: 1, pivot: initialRig.head.pivot },
       catHidden: false, cheek: 0, cheekDrawn: -1,
@@ -295,13 +304,28 @@
       return { x: c.x, y: c.y + currentRig().paws.restY };
     }
     const paws = { L: makePaw('L'), R: makePaw('R') };
-    // 鼠标那一侧的爪：只在发飙抓鼠标、修理时用；平时操作鼠标的是尾巴，两只爪都留在键盘上
+    // 发飙和修理沿用鼠标所在侧；平时是否用爪操作鼠标，由物种决定。
     const mousePaw = () => (S.mouseSide === 'right' ? paws.R : paws.L);
     const mouseHome = () => MOUSE_HOME[S.mouseSide];
-    const mousePoint = () => ({ x: mouseHome().x + S.mouseOff.x, y: mouseHome().y + S.mouseOff.y });
-    // 尾巴要不要去操作鼠标：鼠标最近动过/点过，且醒着（睡着、发飙、罢工、修理时都不去）
-    const tailWanted = (now) => now < S.mouseActiveUntil &&
+    const mousePoint = () => {
+      const off = motionFrame?.mouse || S.mouseOff;
+      return { x: mouseHome().x + off.x, y: mouseHome().y + off.y };
+    };
+    const mousePressed = (button) => S.mouseButtons.has(button) || (button === 0 && motionFrame?.mouse?.down);
+    // 睡着、发飙、罢工、修理时，鼠标动作让位给相应姿态。
+    const mouseAvailable = () =>
       (S.state === STATES.AWAKE || S.state === STATES.DROWSY || S.state === STATES.PETTED);
+    const tailWanted = (now) => !currentSpecies().mousePaw && now < S.mouseActiveUntil && mouseAvailable();
+
+    function pawMouseTarget(paw, now, P) {
+      if (!currentSpecies().mousePaw || paw !== mousePaw() || !mouseAvailable() || P?.mouseAbs || P?.mouseHidden || P?.hideCat) return null;
+      const on = motionFrame?.mouse?.active ?? (now < S.mouseActiveUntil || S.mouseButtons.size > 0);
+      if (!on) return null;
+      const point = mousePoint();
+      const button = mousePressed(0) ? 0 : mousePressed(2) ? 2 : S.mouseButtons.has(1) ? 1 : null;
+      return { id: 'mouse', x: point.x + (P?.mouseX || 0) + (button === 0 ? 9 : button === 2 ? -9 : 0),
+        y: point.y + (P?.mouseY || 0) + (button === null ? 4 : 9), pressing: button !== null, tau: 32 };
+    }
 
     // ---------- 状态 ----------
     function noteInput(now) {
@@ -320,14 +344,14 @@
       return LEFT_CODES.has(code) ? paws.L : paws.R;
     }
 
-    function targetOf(paw, now) {
+    function targetOf(paw, now, P) {
       const forced = ask('forcedPawTarget', paw, now); // 发飙、罢工等：压过一切
       if (forced) return forced;
       if (paw.held.length) return { id: paw.held[paw.held.length - 1], pressing: true };
       if (now < paw.releaseAt && paw.lastCode) return { id: paw.lastCode, pressing: false };
       const soft = ask('softPawTarget', paw, now); // 抹嘴、趴着摊开：只在没按键时
       if (soft) return soft;
-      return { id: 'rest', pressing: false };
+      return pawMouseTarget(paw, now, P) || { id: 'rest', pressing: false };
     }
 
     function keyPoint(code, side) {
@@ -344,6 +368,7 @@
     // 每个输入先把状态推进到此刻，再问扩展模块要不要拦下（发飙、罢工时猫不理人）
     function guard(kind, arg) {
       const now = performance.now();
+      if (pinnedMotionDemo && motionDemoSupported()) return true;
       refreshState(now);
       return !!ask('block', kind, arg, now);
     }
@@ -364,8 +389,8 @@
         S.lookCode = code;
         S.lookSide = paw.side;
         S.keyTimes.push(now);
-        while (S.keyTimes.length && now - S.keyTimes[0] > 1000) S.keyTimes.shift();
-        if (S.keyTimes.length > EXCITE_COUNT) S.excited = true;
+        pruneKeyTimes(now);
+        if (S.keyTimes.filter((at) => now - at <= 1000).length > EXCITE_COUNT) S.excited = true;
         if (S.excited) S.excitedUntil = now + 1000;
         const center = kb.center(code);
         const at = center || kb.edgePoint(code, paw.side);
@@ -388,6 +413,7 @@
         kb.setDown(code, false);
       },
       pointerAt(x, y) {
+        if (pinnedMotionDemo && motionDemoSupported()) return;
         S.pointer = { x, y, at: performance.now() };
       },
       pointerMove(dx, dy) {
@@ -415,7 +441,7 @@
         S.mouseActiveUntil = now + MOUSE_HOLD_MS;
         S.mouseButtons.delete(button);
         if (S.mouseButtons.size === 0) S.tailTapAt = now; // 尾尖松开时弹一下
-        if (el.mouseBtn[button]) el.mouseBtn[button].classList.remove('down');
+        if (el.mouseBtn[button]) el.mouseBtn[button].classList.toggle('down', !!mousePressed(button));
       },
       petStart(nx, ny) {
         if (guard('petStart', null)) return;
@@ -454,7 +480,7 @@
     function refreshState(now) {
       if (S.pressed.size || S.mouseButtons.size) S.lastInput = now; // 长按也算有输入
       const prev = S.state;
-      if (S.pet) S.state = STATES.PETTED;
+      if (S.pet || motionFrame?.pet) S.state = STATES.PETTED;
       else {
         const idle = now - S.lastInput;
         S.state = idle >= S.sleepMs ? STATES.ASLEEP : idle >= S.sleepMs / 2 ? STATES.DROWSY : STATES.AWAKE;
@@ -467,42 +493,115 @@
       call('afterState', now);
     }
 
-    // ?demo=tail-mouse：鼠标位置、按键、"最近动过鼠标"都由时间轴直接给出（&at= 冻结时画面完全确定）
     const demoTail = demo && demo.name === 'tail-mouse' ? { t0: performance.now(), done: false } : null;
     function demoTailTime(now) {
       if (Number.isFinite(demo.at)) return demo.at;
       const t = now - demoTail.t0;
-      return demo.loop ? t % TD.period : t;
+      return demo.loop ? t % MD.period : t;
     }
     function demoTailStep(now) {
-      if (!demoTail || demoTail.done) return;
+      if (!demoTail || demoTail.done || currentSpecies().mousePaw) return;
       const t = demoTailTime(now);
-      if (t >= TD.period) { demoTail.done = true; return; } // 不循环：放一遍后交还给真实输入
-      S.lastInput = now; // 演示期间一直醒着
-      S.mouseActiveUntil = t >= TD.move0 && t < TD.off ? now + (TD.off - t) : 0;
-      if (t >= TD.move0 && t < TD.move1) {
-        const u = (t - TD.move0) / (TD.move1 - TD.move0), env = Math.sin(Math.PI * Math.min(1, u * 1.15));
-        S.mouseOff.x = 6 * env * Math.sin(2 * Math.PI * (t - TD.move0) / 850);
-        S.mouseOff.y = 5 * env * Math.sin(2 * Math.PI * (t - TD.move0) / 560);
+      if (t >= MD.period) { demoTail.done = true; return; }
+      S.lastInput = now;
+      S.mouseActiveUntil = t >= MD.move0 && t < MD.off ? now + (MD.off - t) : 0;
+      if (t >= MD.move0 && t < MD.move1) {
+        const u = (t - MD.move0) / (MD.move1 - MD.move0), env = Math.sin(Math.PI * Math.min(1, u * 1.15));
+        S.mouseOff.x = 6 * env * Math.sin(2 * Math.PI * (t - MD.move0) / 850);
+        S.mouseOff.y = 5 * env * Math.sin(2 * Math.PI * (t - MD.move0) / 560);
       }
-      const down = t >= TD.down && t < TD.up;
+      const down = t >= MD.down && t < MD.up;
       if (down !== S.mouseButtons.has(0)) {
         if (down) S.mouseButtons.add(0); else S.mouseButtons.delete(0);
         el.mouseBtn[0].classList.toggle('down', down);
       }
-      S.tailTapAt = t >= TD.up ? now - (t - TD.up) : -1e9;
-    }
-    // 伸出进度（0 = 收在身后，1 = 搭在鼠标上）：演示时直接由时间轴算出
-    function demoTailReach(t, { extendMs, retractMs }) {
-      if (t < TD.move0) return 0;
-      if (t < TD.off) return Math.min(1, (t - TD.move0) / extendMs);
-      return Math.max(0, 1 - (t - TD.off) / retractMs);
+      S.tailTapAt = t >= MD.up ? now - (t - MD.up) : -1e9;
     }
 
-    function update(now) {
+    const motionPeriod = demo && Object.hasOwn(MOTION_DEMO_PERIODS, demo.name) ? MOTION_DEMO_PERIODS[demo.name] : 0;
+    const pinnedMotionDemo = motionPeriod > 0 && Number.isFinite(demo.at);
+    let motionStarted = null, motionFinished = false, motionFrame = null;
+
+    function motionDemoSupported() {
+      const species = currentSpecies();
+      if (demo.name === 'paw-mouse') return !!species.mousePaw;
+      if (demo.name === 'tilt') return !!species.idleTilt;
+      return true;
+    }
+
+    function sampleMotionDemo(now) {
+      if (!motionPeriod || motionFinished || !motionDemoSupported()) {
+        motionStarted = null;
+        return null;
+      }
+      motionStarted ??= now;
+      const elapsed = now - motionStarted;
+      if (!pinnedMotionDemo && !demo.loop && elapsed >= motionPeriod) {
+        motionFinished = true;
+        return null;
+      }
+      const time = pinnedMotionDemo ? clamp(demo.at, 0, motionPeriod) : elapsed % motionPeriod;
+      if (demo.name === 'tilt') return { time, tilt: tiltAt(time - TILT_DEMO_START) };
+      if (demo.name === 'pet') {
+        const pet = time >= PET_DEMO_START && time < PET_DEMO_END
+          ? { nx: 0.55 * Math.sin((time - PET_DEMO_START) / 200), ny: -0.25 } : null;
+        return { time, pet };
+      }
+      const moved = time - MD.move0;
+      const envelope = time >= MD.move0 && time < MD.move1 ? Math.sin(Math.PI * moved / (MD.move1 - MD.move0)) : 0;
+      return { time, mouse: {
+        x: 6 * envelope * Math.sin(2 * Math.PI * moved / 850),
+        y: 5 * envelope * Math.sin(2 * Math.PI * moved / 560),
+        active: time >= MD.move0 && time < MD.off, down: time >= MD.down && time < MD.up,
+      } };
+    }
+
+    function demoMouseReach(t, extendMs, retractMs) {
+      if (t < MD.off) return clamp((t - MD.move0) / extendMs, 0, 1);
+      return Math.max(0, 1 - (t - MD.off) / retractMs);
+    }
+
+    function pruneKeyTimes(now) {
+      const windowMs = currentSpecies().tailTyping ? TYPING_WAG_MS : 1000;
+      while (S.keyTimes.length && now - S.keyTimes[0] > windowMs) S.keyTimes.shift();
+    }
+
+    function updateTilt(now, dt, rm) {
+      if (!currentSpecies().idleTilt || rm) {
+        S.tiltSide = 0;
+        S.tiltAngle = 0;
+        return;
+      }
+      const idle = Math.max(S.lastInput, S.lastPointerMove);
+      if (motionFrame || (demo && !motionFinished) || S.state !== STATES.AWAKE || now - idle < TILT_IDLE_MS) {
+        S.tiltSide = 0;
+        S.tiltAngle = approach(S.tiltAngle, 0, dt, 70);
+        return;
+      }
+      if (S.tiltIdle !== idle) {
+        S.tiltIdle = idle;
+        if (now - S.tiltStart >= TILT_COOLDOWN_MS && Math.random() < 0.45) {
+          S.tiltStart = now;
+          S.tiltSide = Math.random() < 0.5 ? -1 : 1;
+        }
+      }
+      const angle = tiltAt(now - S.tiltStart);
+      S.tiltAngle = angle && S.tiltSide * angle;
+    }
+
+    function update(now, dt, rm) {
       demoTailStep(now);
+      const wasDown = !!motionFrame?.mouse?.down;
+      motionFrame = sampleMotionDemo(now);
+      if (wasDown !== !!motionFrame?.mouse?.down) el.mouseBtn[0].classList.toggle('down', !!mousePressed(0));
+      if (motionFrame) S.lastInput = now;
       refreshState(now);
-      const rm = reducedMotion();
+      updateTilt(now, dt, rm);
+      if (pinnedMotionDemo && motionFrame) {
+        S.blinkUntil = 0;
+        S.twitch.ear = null;
+        return;
+      }
       if (!rm && (S.state === STATES.AWAKE || S.state === STATES.DROWSY) && now > S.nextBlink) {
         S.blinkUntil = now + 140;
         S.nextBlink = now + 3000 + Math.random() * 3000;
@@ -517,14 +616,25 @@
       const { shoulders, pressScale, lift, wristY, bend: curve } = rig.paws;
       const pivot = rig.body.pivot;
       for (const paw of [paws.L, paws.R]) {
-        const t = targetOf(paw, now);
+        const t = targetOf(paw, now, P);
         const goal = t.x !== undefined ? { x: t.x, y: t.y } : pointFor(t.id, paw);
         const tau = (t.tau || (t.pressing ? 14 : t.id === 'rest' ? 45 : 25)) * P.pawTau;
-        paw.x = approach(paw.x, goal.x, dt, tau);
-        paw.y = approach(paw.y, goal.y, dt, tau);
-        const dist = Math.hypot(goal.x - paw.x, goal.y - paw.y);
-        paw.press = approach(paw.press, t.pressing && dist < 6 ? 1 : 0, dt, 16);
-        paw.lift = approach(paw.lift, dist > 10 ? 1 : 0, dt, 30);
+        if (motionFrame?.mouse && currentSpecies().mousePaw && paw === mousePaw() && (t.id === 'mouse' || t.id === 'rest')) {
+          const reach = demoMouseReach(motionFrame.time, 380, 520), amount = smooth(reach);
+          const rest = restPoint(paw.side), m = mousePoint();
+          paw.x = rest.x + ((t.id === 'mouse' ? goal.x : m.x) - rest.x) * amount;
+          paw.y = rest.y + ((t.id === 'mouse' ? goal.y : m.y + 4) - rest.y) * amount;
+          paw.press = Number(t.pressing);
+          paw.lift = Math.sin(Math.PI * reach);
+        } else if (pinnedMotionDemo && motionFrame) {
+          paw.x = goal.x; paw.y = goal.y; paw.press = Number(t.pressing); paw.lift = 0;
+        } else {
+          paw.x = approach(paw.x, goal.x, dt, tau);
+          paw.y = approach(paw.y, goal.y, dt, tau);
+          const dist = Math.hypot(goal.x - paw.x, goal.y - paw.y);
+          paw.press = approach(paw.press, t.pressing && dist < 6 ? 1 : 0, dt, 16);
+          paw.lift = approach(paw.lift, dist > 10 ? 1 : 0, dt, 30);
+        }
 
         const sx = 1 + (pressScale.x + P.pressBoost) * paw.press + lift.scale * paw.lift;
         const sy = 1 - (pressScale.y + P.pressBoost) * paw.press + lift.scale * paw.lift;
@@ -562,16 +672,23 @@
       const asleep = S.state === STATES.ASLEEP;
       let rotGoal = head.restRotation, xGoal = 0, yGoal = 0;
       if (asleep) { rotGoal += head.sleepRotation; yGoal += head.sleepY; }
-      if (S.pet) {
-        rotGoal += S.pet.nx * head.pet.rotation + (rm ? 0 : head.pet.wobble * Math.sin(now / 90));
-        xGoal += S.pet.nx * head.pet.x;
-        yGoal += S.pet.ny * head.pet.y;
+      const pet = S.pet || motionFrame?.pet;
+      if (pet) {
+        rotGoal += pet.nx * head.pet.rotation + (rm ? 0 : head.pet.wobble * Math.sin((motionFrame?.time ?? now) / 90));
+        xGoal += pet.nx * head.pet.x;
+        yGoal += pet.ny * head.pet.y;
       }
-      S.headBaseRot = approach(S.headBaseRot, rotGoal, dt, asleep ? 500 : 70);
-      S.headBaseX = approach(S.headBaseX, xGoal, dt, 70);
-      S.headBaseY = approach(S.headBaseY, yGoal, dt, asleep ? 500 : 70);
+      if (pinnedMotionDemo && motionFrame) {
+        S.headBaseRot = rotGoal; S.headBaseX = xGoal; S.headBaseY = yGoal;
+      } else {
+        S.headBaseRot = approach(S.headBaseRot, rotGoal, dt, asleep ? 500 : 70);
+        S.headBaseX = approach(S.headBaseX, xGoal, dt, 70);
+        S.headBaseY = approach(S.headBaseY, yGoal, dt, asleep ? 500 : 70);
+      }
 
-      let rot = S.headBaseRot + P.headRot, tx = S.headBaseX + P.headX, ty = S.headBaseY + P.headY + P.lift;
+      let rot = S.headBaseRot + P.headRot + (motionFrame?.tilt ?? S.tiltAngle);
+      const tx = S.headBaseX + P.headX;
+      let ty = S.headBaseY + P.headY + P.lift;
       const tn = now - S.nodStart;
       if (tn < 140) ty += head.nod * Math.sin(Math.PI * tn / 140);
       const ts = now - S.shakeStart;
@@ -622,7 +739,10 @@
 
     function renderEyes(now, dt, P, eyes) {
       if (drawnEyes !== eyes) applyEyeGeometry(eyes);
-      const mode = S.state === STATES.ASLEEP || P.eyesClosed ? 'closed' : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
+      const tongueOut = currentSpecies().petTongue && S.state === STATES.PETTED;
+      if (el.tongue) el.tongue.style.display = tongueOut ? '' : 'none';
+      const mode = tongueOut ? 'happy' : S.state === STATES.ASLEEP || P.eyesClosed ? 'closed'
+        : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
       if (mode !== S.eyeMode) {
         S.eyeMode = mode;
         for (const s of ['L', 'R']) {
@@ -656,7 +776,7 @@
           pointerTarget = new DOMPoint(S.pointer.x, S.pointer.y).matrixTransform(headToScreen.inverse());
           tau = S.state === STATES.DROWSY ? GAZE_SLOW_TAU : GAZE_TAU;
         }
-      } else if (!eyesFollow && now < S.mouseActiveUntil) {
+      } else if (!eyesFollow && (motionFrame?.mouse?.active ?? (now < S.mouseActiveUntil))) {
         lx = clamp((mousePoint().x - eyeX) / 220, -1, 1) * gaze.keyX; ly = gaze.keyY;
       } else if (S.followingPointer) {
         tau = GAZE_SLOW_TAU;
@@ -716,21 +836,38 @@
     function renderTail(now, dt, rm, P, rig) {
       const tail = rig.tail;
       const { pivot, wag, mouse, halfWidth, tipLength, markingInset } = tail;
+      const typingWag = currentSpecies().tailTyping;
+      const joyfulWag = typingWag && S.state === STATES.PETTED;
+      const asleep = S.state === STATES.ASLEEP;
       let motion = wag.awake;
-      if (S.state === STATES.ASLEEP) motion = wag.asleep;
-      else if (S.excited) motion = wag.excited;
+      if (asleep) motion = wag.asleep;
+      else if (typingWag && rm) motion = null;
+      else if (joyfulWag) motion = { amp: wag.excited.amp * 1.15, speed: wag.excited.speed * 1.55, tau: wag.tau / 3 };
+      else if (typingWag) {
+        pruneKeyTimes(now);
+        const rate = S.keyTimes.length / (TYPING_WAG_MS / 1000);
+        const mix = S.tailTypingMix = approach(S.tailTypingMix, clamp(rate / TYPING_WAG_MAX_HZ, 0, 1), dt, 180);
+        const calm = S.state === STATES.DROWSY ? wag.drowsy : wag.awake;
+        motion = { amp: calm.amp + (wag.excited.amp - calm.amp) * mix, speed: calm.speed + (wag.excited.speed - calm.speed) * mix };
+      } else if (S.excited) motion = wag.excited;
       else if (rm) motion = null;
       else if (S.state === STATES.DROWSY) motion = wag.drowsy;
       let { amp = 0, speed = 0, base = 0, tau = wag.tau } = motion || {};
-      if (P.tailAmp !== null && S.state !== STATES.ASLEEP) { amp = P.tailAmp; speed = P.tailSpeed; }
-      S.tailPhase += dt * speed;
-      S.tailAngle = approach(S.tailAngle, base + amp * Math.sin(S.tailPhase), dt, tau);
+      if (P.tailAmp !== null && !asleep && !joyfulWag) { amp = P.tailAmp; speed = P.tailSpeed; }
+      S.tailWagSpeed = speed;
+      if (pinnedMotionDemo && motionFrame) {
+        const time = motionFrame.time;
+        S.tailPhase = joyfulWag ? PET_DEMO_START * wag.awake.speed + (time - PET_DEMO_START) * speed : time * speed;
+      } else S.tailPhase += dt * speed;
+      const angle = base + amp * Math.sin(S.tailPhase);
+      S.tailAngle = (typingWag && asleep) || (pinnedMotionDemo && motionFrame) ? angle : approach(S.tailAngle, angle, dt, tau);
 
       // 伸出 / 收回：匀速推进进度，画的时候再缓入缓出
       const want = tailWanted(now) && !P.mouseAbs && !P.mouseHidden && !P.hideCat;
       S.tailWant = want;
       if (S.tailReach === 0) S.tailSide = S.mouseSide; // 只在收好时换边，伸到一半换边不会跳
-      if (demoTail && !demoTail.done) S.tailReach = demoTailReach(demoTailTime(now), mouse);
+      if (currentSpecies().mousePaw) S.tailReach = 0;
+      else if (demoTail && !demoTail.done) S.tailReach = demoMouseReach(demoTailTime(now), mouse.extendMs, mouse.retractMs);
       else if (rm) S.tailReach = want ? 1 : 0;
       else S.tailReach = want ? Math.min(1, S.tailReach + dt / mouse.extendMs) : Math.max(0, S.tailReach - dt / mouse.retractMs);
       const r = S.tailReach;
@@ -744,25 +881,28 @@
         return { x: pivot.x + vx * ca - vy * sa + bx, y: pivot.y + vx * sa + vy * ca + by - lift };
       });
 
-      // 尾尖按键：按下时压下去、挪到按的那颗键上并略微压扁；松开时弹一下
-      const btn = S.mouseButtons.has(0) ? 0 : S.mouseButtons.has(2) ? 2 : null;
-      S.tailPress = rm ? (btn !== null ? 1 : 0) : approach(S.tailPress, btn !== null ? 1 : 0, dt, mouse.pressMs);
-      // 鼠标朝向角色，左键在画面右边
-      S.tailPressX = approach(S.tailPressX, btn === 0 ? mouse.pressX : btn === 2 ? -mouse.pressX : S.tailPressX, dt, mouse.pressMs);
-      const tap = now - S.tailTapAt;
-      const { duration, height } = mouse.bounce;
-      const bounce = !rm && tap >= 0 && tap < duration ? height * Math.sin(Math.PI * tap / duration) : 0;
+      const fixedFrame = pinnedMotionDemo && motionFrame;
+      if (mouse && !currentSpecies().mousePaw) {
+        // 尾尖按键：按下时朝对应的按钮挪动并压扁。鼠标左键在画面右边。
+        const btn = mousePressed(0) ? 0 : mousePressed(2) ? 2 : null;
+        const press = Number(btn !== null), x = btn === 0 ? mouse.pressX : btn === 2 ? -mouse.pressX : S.tailPressX;
+        S.tailPress = rm || fixedFrame ? press : approach(S.tailPress, press, dt, mouse.pressMs);
+        S.tailPressX = fixedFrame ? x : approach(S.tailPressX, x, dt, mouse.pressMs);
+      }
 
       let pts = idle;
       if (r > 0) {
-        const H = MOUSE_HOME[S.tailSide];
-        const m = { x: H.x + S.mouseOff.x + P.mouseX, y: H.y + S.mouseOff.y + P.mouseY };
+        const H = MOUSE_HOME[S.tailSide], off = motionFrame?.mouse || S.mouseOff;
+        const m = { x: H.x + off.x + P.mouseX, y: H.y + off.y + P.mouseY };
+        const tap = motionFrame?.mouse ? motionFrame.time - MD.up : now - S.tailTapAt;
+        const { duration, height } = mouse.bounce;
+        const bounce = !rm && tap >= 0 && tap < duration ? height * Math.sin(Math.PI * tap / duration) : 0;
         // 尾巴中段比尾尖慢半拍跟上鼠标，曲线跟着鼠标的移动轻轻弯
-        if (!S.tailLag || rm) S.tailLag = { x: m.x, y: m.y };
+        if (!S.tailLag || rm || fixedFrame) S.tailLag = { x: m.x, y: m.y };
         else { S.tailLag.x = approach(S.tailLag.x, m.x, dt, mouse.lagMs); S.tailLag.y = approach(S.tailLag.y, m.y, dt, mouse.lagMs); }
         const direction = H.x < rig.turnX ? 1 : -1;                     // 从鼠标指向身体的横向方向
         const mirrorX = (x) => (direction > 0 ? x : 2 * rig.turnX - x);    // 固定点按鼠标所在侧镜像
-        const sway = rm ? 0 : mouse.sway.height * Math.sin(now / mouse.sway.period);
+        const sway = rm ? 0 : mouse.sway.height * Math.sin((motionFrame?.time ?? now) / mouse.sway.period);
         const ctrl = mouse.points({
           bx, by, mirrorX, direction, lag: S.tailLag, mouse: m, sway, pressX: S.tailPressX, press: S.tailPress, bounce,
         });
@@ -883,7 +1023,7 @@
         const dt = clamp(now - last, 0, 64);
         last = now;
         const rm = reducedMotion();
-        update(now);
+        update(now, dt, rm);
         const P = defaultPose();
         call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
         const rig = currentRig();
@@ -946,6 +1086,7 @@
       get excited() { refreshState(performance.now()); return S.excited; },
       get paws() {
         const now = performance.now();
+        if (currentSpecies().mousePaw) refreshState(now);
         return Object.freeze({ left: targetOf(paws.L, now).id, right: targetOf(paws.R, now).id });
       },
       get pressed() { return Object.freeze([...S.pressed.keys()]); },
@@ -959,6 +1100,8 @@
         return tailWanted(now) ? (r >= 1 ? 'on-mouse' : 'reaching') : r > 0 ? 'retracting' : 'idle';
       },
       get tailReach() { return Math.round(S.tailReach * 1000) / 1000; },
+      get tailWagHz() { return S.tailWagSpeed * 1000 / (2 * Math.PI); },
+      get tilt() { return motionFrame?.tilt ?? S.tiltAngle; },
       get floaters() { return Object.freeze(fx.texts(performance.now())); },
     };
     // 扩展模块的调试字段：读取前同样先推进状态

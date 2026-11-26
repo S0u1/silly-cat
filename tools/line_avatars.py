@@ -1,50 +1,13 @@
-"""用场景的矢量部件、花纹和配色生成线条头像。需要 Python 3 和 Node.js。"""
+"""用场景部件生成猫的线条头像和待出图狗的临时头像。需要 Python 3 和 Node.js。"""
 
 from copy import deepcopy
-import json
 from pathlib import Path
 import re
-import subprocess
 import xml.etree.ElementTree as ET
 
-
-from portrait_scene import cat_scene
+from portrait_scene import avatar_styles, by_id, dog_avatar, portrait_data, species_scene
 
 PROTOTYPE = Path(__file__).resolve().parents[1] / "prototype"
-
-# 用最小的 DOM 替身执行 coats.js，读取实际用到的花纹与体型数据。
-READ_COATS = """
-const fs = require('node:fs');
-const vm = require('node:vm');
-const defs = [];
-const node = { insertAdjacentHTML() {}, setAttribute() {}, removeAttribute() {}, style: {} };
-const context = {
-  window: {},
-  SillyArt: { apply() {} },
-  document: {
-    documentElement: { dataset: {} },
-    getElementById: () => node,
-    querySelector: () => ({ insertAdjacentHTML: (_, markup) => defs.push(markup) }),
-    querySelectorAll: () => [],
-  },
-};
-for (const file of ['species.js', 'species-cat.js', 'coats.js']) {
-  vm.runInNewContext(fs.readFileSync(require('node:path').join(process.argv[1], file), 'utf8'), context);
-}
-const coats = context.window.SillyCoats;
-const portraits = coats.list().map(({ id }) => {
-  const { shape, head, eye } = coats.setArtStyle('line', id);
-  return { id, shape, head, eyes: eye && [eye(345), eye(455)] };
-});
-console.log(JSON.stringify({ defs, portraits }));
-"""
-
-
-def by_id(tree, node_id):
-    node = tree.find(f".//*[@id='{node_id}']")
-    if node is None:
-        raise ValueError(f"场景缺少 #{node_id}")
-    return node
 
 
 def avatar(scene, styles, patterns, portrait):
@@ -96,21 +59,30 @@ def avatar(scene, styles, patterns, portrait):
 
 
 def main():
-    data = json.loads(subprocess.check_output(
-        ["node", "-e", READ_COATS, str(PROTOTYPE)], text=True))
-    scene = cat_scene(PROTOTYPE)
-    css = (PROTOTYPE / "style.css").read_text(encoding="utf-8")
-    styles = "\n".join(css.split(f"/* portrait-{block}:start */")[1]
-                       .split(f"/* portrait-{block}:end */")[0].replace("html", "svg")
-                       for block in ("palette", "face"))
+    portraits = portrait_data(PROTOTYPE)
+    cats = [portrait for portrait in portraits if portrait["species"] == "cat"]
+    patterns = [portrait["defs"] for portrait in cats if "defs" in portrait]
+    scene = species_scene(PROTOTYPE, "parts-cat")
+    styles = avatar_styles(PROTOTYPE)
     # 线条头像用不到只在毛绒画风生效的规则（如英短蓝的眨眼眼皮色），去掉免得头像里留着无效样式。
     styles = re.sub(r'^svg[^{\n]*:not\(\[data-art-style="line"\]\)[^{\n]*\{[^}]*\}\n', "", styles, flags=re.M)
     directory = PROTOTYPE / "cats" / "line"
     directory.mkdir(parents=True, exist_ok=True)
-    for portrait in data["portraits"]:
-        path = directory / f"{portrait['id']}.svg"
-        path.write_bytes(avatar(deepcopy(scene), styles, data["defs"], portrait))
-        print(path.relative_to(PROTOTYPE))
+    for portrait in cats:
+        write_avatar(directory / f"{portrait['id']}.svg", avatar(deepcopy(scene), styles, patterns, portrait))
+    for portrait in portraits:
+        coat = portrait["id"]
+        if portrait["species"] != "dog" or (PROTOTYPE / "art" / coat / "head.webp").is_file():
+            continue
+        root = dog_avatar(PROTOTYPE, portrait)
+        ET.indent(root)
+        write_avatar(PROTOTYPE / "cats" / f"{coat}.svg", ET.tostring(root, encoding="utf-8") + b"\n")
+
+
+def write_avatar(path, contents):
+    if not path.exists() or path.read_bytes() != contents:
+        path.write_bytes(contents)
+    print(path.relative_to(PROTOTYPE))
 
 
 if __name__ == "__main__":

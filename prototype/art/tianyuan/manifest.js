@@ -1,0 +1,1 @@
+SillyArt.register("tianyuan", {});

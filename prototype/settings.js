@@ -18,7 +18,7 @@
   const AUTO = Object.freeze({ drool: 2, slump: 3.5 });
   const SIZE = Object.freeze({ min: 0.5, max: 2, step: 0.05 });
   // 和 coats.js 的列表保持一致，顺序也是设置页的头像顺序。
-  const PETS = Object.freeze(['cow', 'orange', 'lihua', 'siamese', 'black', 'calico', 'blue', 'white', 'maine', 'sphynx']);
+  const PETS = Object.freeze(['cow', 'orange', 'lihua', 'siamese', 'black', 'calico', 'blue', 'white', 'maine', 'sphynx', 'tianyuan']);
 
   // min / max 都是秒
   const FIELDS = Object.freeze({

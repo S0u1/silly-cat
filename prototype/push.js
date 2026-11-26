@@ -24,6 +24,8 @@
     const interval = (v) => Number.isFinite(v) ? clamp(v, 5, 36000) : 600;
     let everySec = interval(opts.everySeconds);
     const newDeadline = (now) => now + rand(0.5, 1.5) * everySec * 1000;
+    const pushSpec = () => window.SillySpecies.current.push;
+    let wasSupported = !!pushSpec();
     let nextPush = newDeadline(t0);
     let run = null, offset = 0, settling = null, backAt = -Infinity;
     const cupDir = () => S.mouseSide === 'left' ? -1 : 1;
@@ -85,6 +87,7 @@
     }
 
     function view(now) {
+      if (!pushSpec()) return { ...resting(dir, 0, 0, 0, false), phase: 'disabled' };
       if (demo) {
         const t = demoTime(now);
         if (demo.name === 'push-back') return resting(dir, 0, 0, unit(t / FADE_MS), true);
@@ -105,13 +108,24 @@
     }
 
     function overrideState(now) {
-      if (S.pet) return null;
+      if (!pushSpec() || S.pet) return null;
       if (demo) return (pinned || demoTime(now) < (demo.name === 'push' ? END : FADE_MS)) ? STATES.AWAKE : null;
       return run && run.acting && now - run.start < END ? STATES.AWAKE : null;
     }
 
     function afterState(now) {
       const newDir = cupDir();
+      if (!pushSpec()) {
+        if (wasSupported) {
+          run = null; settling = null; offset = 0; backAt = -Infinity;
+          wasSupported = false;
+        }
+        return;
+      }
+      if (!wasSupported) {
+        wasSupported = true;
+        nextPush = newDeadline(now);
+      }
       if (demo) { dir = newDir; return; }
       if (run) {
         const t = now - run.start;
@@ -153,7 +167,7 @@
 
     function pawTarget(frame, paw) {
       const { t, dir: d, offset: distance, beat } = frame;
-      const reach = window.SillySpecies.current.push.paw;
+      const reach = pushSpec().paw;
       const hover = { x: cupX(d, distance) + reach.hover.x * d, y: MUG.y + reach.hover.y };
       if (t < TAP) {
         return { ...blendPoint(restPoint(paw.side), hover, ease((t - REACH) / 300)), pressing: false };
@@ -182,7 +196,7 @@
       const frame = view(now);
       const { t, dir: d } = frame;
       if (frame.acting) {
-        const { lookFront, headTilt, watchDip, proudLift, tail } = window.SillySpecies.current.push;
+        const { lookFront, headTilt, watchDip, proudLift, tail } = pushSpec();
         const cup = { x: cupX(d, frame.offset), y: MUG.y - 36 };
         if (t < REACH) P.look = lookFront;
         else if (t < STARE) P.look = blendPoint(lookFront, cup, ease((t - REACH) / 170));
@@ -202,7 +216,7 @@
           P.tailSpeed = tail.speed;
         }
       }
-      if (pinned) freezePose(now, rm, P, frame);
+      if (pinned && pushSpec()) freezePose(now, rm, P, frame);
     }
 
     function freezePose(now, rm, P, frame) {
@@ -254,7 +268,7 @@
 
     return {
       overrideState, afterState, afterKeyDown, forcedPawTarget, pose, render,
-      block() { return pinned; },
+      block() { return pinned && !!pushSpec(); },
       isActing(now) { return view(now).acting; },
       setEnabled(v) { enabled = v; },
       setEverySeconds(v) {
@@ -266,7 +280,7 @@
       debugProps: {
         pushPhase: () => view(performance.now()).phase,
         mugOffset: () => view(performance.now()).offset,
-        nextPushIn: () => Math.round(Math.max(0, nextPush - performance.now()) / 100) / 10,
+        nextPushIn: () => pushSpec() ? Math.round(Math.max(0, nextPush - performance.now()) / 100) / 10 : null,
       },
     };
   }

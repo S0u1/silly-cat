@@ -177,9 +177,49 @@
       imprint: { dx: 30, dy: -16 },
     },
       shape: { bodySX: 0.96, headSX: 1, ear: 1.18 } },
+    {
+      id: 'tianyuan', name: '大黄', species: 'dog', furOnly: true,
+      defs: `
+        <radialGradient id="coat-tianyuan-cheeks" cy="48%" r="52%">
+          <stop offset="18%" stop-color="var(--coat-light)"/>
+          <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="coat-tianyuan-muzzle" cy="58%" r="52%">
+          <stop offset="36%" stop-color="var(--coat-light)"/>
+          <stop offset="76%" stop-color="var(--coat-light)" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="coat-tianyuan-nose-shade" cy="42%" r="53%">
+          <stop offset="34%" stop-color="var(--coat-muzzle)" stop-opacity="0.8"/>
+          <stop offset="70%" stop-color="var(--coat-dark)" stop-opacity="0.38"/>
+          <stop offset="100%" stop-color="var(--coat-dark)" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="coat-tianyuan-chest">
+          <stop offset="12%" stop-color="var(--coat-light)"/>
+          <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
+        </radialGradient>
+        <radialGradient id="coat-tianyuan-back">
+          <stop offset="20%" stop-color="var(--coat-back)"/>
+          <stop offset="100%" stop-color="var(--coat-back)" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="coat-tianyuan-arm" gradientUnits="userSpaceOnUse" x1="0" y1="298" x2="0" y2="470">
+          <stop offset="15%" stop-color="var(--coat-base)"/>
+          <stop offset="100%" stop-color="var(--coat-light)"/>
+        </linearGradient>
+        <linearGradient id="coat-tianyuan-tail" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="25%" stop-color="var(--coat-base)"/>
+          <stop offset="100%" stop-color="var(--coat-light)"/>
+        </linearGradient>`,
+      head: `
+        <ellipse cx="400" cy="248" rx="99" ry="52" fill="url(#coat-tianyuan-cheeks)"/>
+        <ellipse cx="400" cy="240" rx="56" ry="46" fill="url(#coat-tianyuan-muzzle)"/>
+        <ellipse cx="400" cy="220" rx="30" ry="22" fill="url(#coat-tianyuan-nose-shade)"/>`,
+      body: '<ellipse cx="400" cy="334" rx="78" ry="82" fill="url(#coat-tianyuan-chest)"/>',
+      backBody: '<ellipse cx="400" cy="337" rx="80" ry="100" fill="url(#coat-tianyuan-back)"/>',
+    },
   ].map((coat) => ({ ...coat, art: art(coat.species, coat.id, coat.art) }));
 
-  const lineCoats = new Map(coats.map(({ art, lineShape, ...coat }) => [
+  const lineCoats = new Map(coats.filter((coat) => !coat.furOnly).map(({ art, lineShape, ...coat }) => [
     coat.id, lineShape ? { ...coat, shape: lineShape } : coat,
   ]));
   const root = document.documentElement;
@@ -211,9 +251,10 @@
       initialized = true;
     }
     const coat = coats.find((coat) => coat.id === id) || coats[0];
-    const next = artStyle === 'line' ? lineCoats.get(coat.id) : coat;
+    const line = artStyle === 'line' ? lineCoats.get(coat.id) : null;
+    const next = line || coat;
     window.SillySpecies.select(coat.species);
-    root.dataset.artStyle = artStyle;
+    root.dataset.artStyle = line ? 'line' : 'fur';
     if (root.dataset.cat !== next.id) {
       document.getElementById('scene').setAttribute('aria-label', '坐在键盘后面的' + next.name);
       root.dataset.cat = next.id;

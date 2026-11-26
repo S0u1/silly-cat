@@ -574,7 +574,7 @@
       const m = mood();
       const raging = !!F.rage;
       const { rig, fatigue } = window.SillySpecies.current;
-      show(E.brows, 'brows', m !== 'fine');
+      show(E.brows, 'brows', fatigue.browMoods?.includes(m) ?? (m !== 'fine'));
       show(E.sweat, 'sweat', m === 'tired' && !raging);
       show(E.anger, 'anger', m === 'angry');
       if (m === 'angry') {
