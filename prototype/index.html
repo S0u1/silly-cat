@@ -37,7 +37,7 @@
     </mask>
   </defs>
 
-  <ellipse class="shadow" cx="400" cy="594" rx="300" ry="20"/>
+  <ellipse id="ground-shadow" class="shadow" cx="400" cy="594" rx="300" ry="20"/>
 
   <!-- 尾巴：黑色带白尖，轮廓由 cat.js 每帧按中线算（平时在身后摆，动鼠标时绕到前面搭在鼠标上） -->
   <g id="tail">
@@ -353,7 +353,16 @@
   const swatParam = toggle('swat'), grumpParam = toggle('grump'), purrParam = toggle('purr');
   const pushEveryParam = parseFloat(params.get('pushevery'));
 
-  const kb = SillyKeyboard.build(document.getElementById('keyboard'));
+  const keyboardParam = params.get('kb');
+  const kb = SillyKeyboard.build(document.getElementById('keyboard'), keyboardParam ?? SillySettings.DEFAULTS.keyboard);
+  function updateGroundShadow() {
+    const shadow = document.getElementById('ground-shadow');
+    const full = kb.style === 'full';
+    shadow.setAttribute('cy', full ? 560 : 594);
+    shadow.setAttribute('rx', full ? 310 : 300);
+    shadow.setAttribute('ry', full ? 18 : 20);
+  }
+  updateGroundShadow();
   let fatigue, sleepMod, push, statusBar, headphones, grump, swat, purr, desktop;
   const cat = SillyCat.createCat({
     keyboard: kb, sleepSeconds: sleep, eyesFollow: eyesParam ?? SillySettings.DEFAULTS.eyesFollow, demo,
@@ -381,6 +390,7 @@
         isPushing: push.isActing,
       })),
       SillyHeadFollow.create,
+      () => ({ keyboardChanged: updateGroundShadow }),
     ],
   });
   const headEl = [document.getElementById('cat-head'), document.getElementById('strike-head')];
@@ -394,6 +404,7 @@
     const applySettings = (raw, skipUrl) => {
       const s = SillySettings.sanitize(raw);
       SillyCoats.setArtStyle(s.artStyle, s.cat);
+      if (!(skipUrl && SillyKeyboard.isStyle(keyboardParam))) cat.setKeyboardStyle(s.keyboard);
       const use = (k) => !(skipUrl && num(k) !== null);
       if (use('sleep')) cat.setSleepSeconds(s.sleep);
       if (use('drool')) sleepMod.setDroolSeconds(s.drool ?? NaN); // NaN = 自动（入睡时间 × 2）
@@ -412,10 +423,18 @@
       if (!(skipUrl && Number.isFinite(pushEveryParam))) push.setEverySeconds(s.pushEvery);
     };
     const T = window.__TAURI__;
+    let receivedSettings = false;
+    T.event.listen('silly:settings', (ev) => {
+      receivedSettings = true;
+      applySettings(ev.payload, false);
+    });
     T.core.invoke('load_settings')
-      .then((raw) => { if (raw) applySettings(raw, true); else SillyCoats.apply('cow'); })
-      .catch(() => SillyCoats.apply('cow'));
-    T.event.listen('silly:settings', (ev) => applySettings(ev.payload, false));
+      .then((raw) => {
+        if (receivedSettings) return;
+        if (raw) applySettings(raw, true);
+        else SillyCoats.apply('cow');
+      })
+      .catch(() => { if (!receivedSettings) SillyCoats.apply('cow'); });
   } else {
     SillyInput.createBrowserInput(cat, {
       headEl,

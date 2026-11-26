@@ -4,7 +4,7 @@ import test from 'node:test';
 import { setImmediate as flush } from 'node:timers/promises';
 import { createContext, Script } from 'node:vm';
 
-const scripts = ['keyboard.js', 'cat.js', 'input-desktop.js'].map((filename) =>
+const scripts = ['keyboard.js', 'cat.js', 'input-desktop.js', 'settings.js', 'swat.js', 'head-follow.js'].map((filename) =>
   new Script(readFileSync(new URL(`../prototype/${filename}`, import.meta.url), 'utf8'), { filename }));
 
 function fakeClock() {
@@ -62,6 +62,7 @@ function fakeElement() {
     setAttribute: (name, value) => attributes.set(name, String(value)),
     getAttribute: (name) => attributes.get(name),
     appendChild() {},
+    insertBefore() {},
     remove() {},
     getScreenCTM: () => null,
     getBoundingClientRect: () => ({ left: 0, top: 0, width: 20, height: 20 }),
@@ -76,7 +77,7 @@ const cursorAt = (x) => ({ x, y: 10, gx: x, gy: 10 });
 const pending = () => new Promise(() => {});
 const macKeyCodes = { F12: 111, KeyK: 40 };
 
-async function setup({ held = unreadable, cursor = () => null, clickThrough = false } = {}) {
+async function setup({ held = unreadable, cursor = () => null, clickThrough = false, modules = () => [] } = {}) {
   const clock = fakeClock();
   const frames = [];
   const errors = [];
@@ -145,7 +146,7 @@ async function setup({ held = unreadable, cursor = () => null, clickThrough = fa
   for (const script of scripts) script.runInContext(window);
 
   const keyboard = window.SillyKeyboard.build(element('keyboard'));
-  const cat = window.SillyCat.createCat({ keyboard });
+  const cat = window.SillyCat.createCat({ keyboard, modules: modules(window) });
   const desktop = window.SillyDesktopInput.create({
     ...cat,
     pointerMove(...args) { moves.push(args); cat.pointerMove(...args); },
@@ -408,4 +409,98 @@ test('绘制抛错后仍逐帧调度，相同错误只记录一次，恢复后�
   await app.clock.advance(16);
   app.frame();
   assert.equal(app.errors.length, 1);
+});
+
+test('切换到 108 键时释放当前按键，新增键位按两只爪的物理位置分工', async () => {
+  const { window, cat, keyboard, key, frame, errors } = await setup();
+  assert.equal(keyboard.codes().length, 62);
+  key('KeyK', true);
+  cat.setKeyboardStyle('full');
+  frame();
+  assert.equal(keyboard.codes().length, 108);
+  assert.equal(new Set(keyboard.codes()).size, 108);
+  assert.deepEqual([...cat.debug.pressed], []);
+  assert.deepEqual({ ...cat.debug.paws }, { left: 'rest', right: 'rest' });
+  key('KeyK', false);
+
+  const extraLeft = ['F1', 'F2', 'F3', 'F4', 'F5', 'F6'];
+  const extraRight = [
+    'F7', 'F8', 'F9', 'F10', 'F11', 'F12', 'PrintScreen', 'ScrollLock', 'Pause',
+    'Insert', 'Home', 'PageUp', 'Delete', 'End', 'PageDown',
+    'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight',
+    'Power', 'Sleep', 'WakeUp', 'LaunchApp2', 'NumLock',
+    'NumpadDivide', 'NumpadMultiply', 'NumpadSubtract', 'NumpadAdd', 'NumpadEnter', 'NumpadDecimal',
+    ...Array.from({ length: 10 }, (_, i) => 'Numpad' + i),
+  ];
+  for (const [side, codes] of [['left', ['Escape', ...extraLeft]], ['right', extraRight]]) {
+    for (const code of codes) {
+      assert.ok(keyboard.center(code), code);
+      cat.keyDown(code);
+      assert.equal(cat.debug.paws[side], code);
+      cat.keyUp(code);
+    }
+  }
+  cat.setKeyboardStyle('compact');
+  frame();
+  assert.equal(keyboard.center('F5'), null);
+  cat.keyDown('F5');
+  assert.equal(cat.debug.paws.right, 'F5');
+  assert.equal(window.SillySettings.sanitize({ keyboard: 'full' }).keyboard, 'full');
+  for (const value of [undefined, 'giant', 108, null]) {
+    assert.equal(window.SillySettings.sanitize({ keyboard: value }).keyboard, 'compact');
+  }
+  assert.deepEqual(errors, []);
+});
+
+test('换键盘后拍爪立即按新布局判断触发距离、爪子够距和外壳下沿', async () => {
+  let ctx, swat;
+  const { cat, clock, frame, errors } = await setup({ modules: (window) => [
+    (context) => {
+      ctx = context;
+      swat = window.SillySwat.create({ ...ctx, pointerInScene: () => ctx.S.pointer });
+      return swat;
+    },
+  ] });
+  cat.setSleepSeconds(120);
+  async function move(x, y, elapsed) {
+    await clock.advance(elapsed);
+    cat.pointerAt(x, y);
+    swat.afterState(clock.now());
+  }
+  await move(230, 420, 0);
+  await move(200, 420, 32);
+  assert.equal(cat.debug.swat.side, 'R');
+  await move(0, 350, 210);
+  const compact = swat.forcedPawTarget(ctx.paws.R, clock.now());
+  const reachFromShoulder = ({ x, y }) => Math.hypot(x - ctx.shoulders.R.x, y - ctx.shoulders.R.y);
+
+  cat.setKeyboardStyle('full');
+  frame();
+  assert.equal(ctx.kb.style, 'compact', '等待当前挥爪完成');
+  await clock.advance(3200);
+  frame();
+  assert.equal(ctx.kb.style, 'full');
+  await move(230, 420, 2200);
+  await move(200, 420, 32);
+  assert.equal(cat.debug.swat.side, 'R');
+  await move(0, 350, 210);
+  const full = swat.forcedPawTarget(ctx.paws.R, clock.now());
+  assert.ok(reachFromShoulder(full) > reachFromShoulder(compact) + 10);
+
+  await move(10, 354, 3200);
+  await move(40, 354, 32);
+  assert.equal(cat.debug.swat.side, 'R', '全尺寸新增的小键盘扩大了猫右侧的触发距离');
+
+  await move(345, 570, 3200);
+  await move(320, 570, 32);
+  assert.equal(cat.debug.swat.side, null, '全尺寸外壳更浅，下方的指针不触发');
+  cat.setKeyboardStyle('compact');
+  frame();
+  await move(345, 570, 32);
+  await move(320, 570, 32);
+  assert.equal(cat.debug.swat.side, 'R', '同一点在紧凑布局下可以触发');
+  await move(10, 354, 3200);
+  await move(40, 354, 32);
+  assert.equal(cat.debug.swat.side, null, '同一侧向距离超出紧凑布局的触发范围');
+  assert.deepEqual(errors, []);
 });

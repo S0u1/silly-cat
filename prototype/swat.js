@@ -18,17 +18,21 @@
 
   function create(ctx, opts = {}) {
     const { S, STATES, kb, paws, shoulders, choosePaw, keyPoint, restPoint, reducedMotion, pointerInScene, approach, f1 } = ctx;
-    const keys = kb.codes();
-    // reach：鼠标进到这个距离内才会触发；pawReach：爪子实际最远伸到哪。
-    // 爪子比触发范围短，稍远处晃会「够一下没够着」，也免得手臂伸成一根直杆。
+    // 触发距离比爪子够距更远，远处的指针会让猫拍空。
     const reach = {}, pawReach = {};
-    for (const side of ['L', 'R']) {
-      const points = keys.filter(code => code === 'Space' || choosePaw(code).side === side);
-      const farthest = Math.max(...points.map(code => distance(shoulders[side], keyPoint(code, side))));
-      reach[side] = 1.15 * farthest;
-      pawReach[side] = 0.8 * farthest;
+    let bottom;
+    function keyboardChanged() {
+      const keys = kb.codes();
+      for (const side of ['L', 'R']) {
+        const points = keys.filter(code => code === 'Space' || choosePaw(code).side === side);
+        const farthest = Math.max(...points.map(code => distance(shoulders[side], keyPoint(code, side))));
+        reach[side] = 1.15 * farthest;
+        pawReach[side] = 0.8 * farthest;
+      }
+      bottom = kb.bounds.y + kb.bounds.h + 8; // 键盘外壳含下沿
+      history = [];
+      combo = null;
     }
-    const bottom = kb.bounds.y + kb.bounds.h + 8; // 键盘外壳含下沿
     const demo = opts.demo?.name === 'swat' ? opts.demo : null;
     const demoStart = performance.now();
     const pinned = demo && Number.isFinite(demo.at);
@@ -36,6 +40,7 @@
     let run = null, impact = null, watchUntil = -Infinity, next = -Infinity, combo = null;
     let point = null, history = [], fakePointer = null;
     let lookX = 0, lookY = 0;
+    keyboardChanged();
     const layer = document.getElementById('fx-layer');
     function effect(id, markup) {
       const node = document.createElementNS(NS, 'g');
@@ -200,6 +205,7 @@
       if (fakePointer) cursor.setAttribute('transform', `translate(${f1(fakePointer.x)} ${f1(fakePointer.y)})`);
     }
 
+    const isActing = (now) => !!run && now - run.start < END;
     return {
       afterState, forcedPawTarget, pose, render,
       overrideState(now) {
@@ -210,7 +216,9 @@
         return null;
       },
       afterKeyDown(code, now) { if (run || combo || now < watchUntil) cancel(now); },
-      isActing(now) { return !!run && now - run.start < END; },
+      keyboardChanged,
+      blocksKeyboardChange: isActing,
+      isActing,
       setEnabled(v) { enabled = !!v; },
       debugProps: {
         swat: () => {

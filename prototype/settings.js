@@ -11,7 +11,7 @@
   const DEFAULTS = Object.freeze({
     sleep: 20, drool: null, slump: null, work: 90, rest: 20, statusBar: true, autoUpdate: true,
     push: true, pushEvery: 600, eyesFollow: true, swat: true, grump: true, purr: true, purrVolume: 60,
-    headphones: false, headphoneColor: 'strawberry', size: 1, cat: 'cow', artStyle: 'fur',
+    headphones: false, headphoneColor: 'strawberry', size: 1, cat: 'cow', artStyle: 'fur', keyboard: 'compact',
   });
   const BOOLS = Object.freeze(['statusBar', 'autoUpdate', 'push', 'eyesFollow', 'headphones', 'swat', 'grump', 'purr']);
   const HEADPHONE_COLORS = Object.freeze({
@@ -73,6 +73,7 @@
       const size = raw.size;
       if (Number.isFinite(size) && size >= SIZE.min && size <= SIZE.max) s.size = size;
       if (CATS.includes(raw.cat)) s.cat = raw.cat;
+      if (raw.keyboard === 'full') s.keyboard = 'full';
       if (raw.artStyle === 'fur' || raw.artStyle === 'line') s.artStyle = raw.artStyle;
     }
     const err = validate(s);

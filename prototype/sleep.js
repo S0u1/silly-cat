@@ -319,7 +319,7 @@
         E.tuft.style.display = ti < 3500 ? '' : 'none';
         const fade = ti < 2200 ? 0 : (ti - 2200) / (IMPRINT_MS - 2200);
         E.imprint.setAttribute('opacity', (0.42 * (1 - fade * fade)).toFixed(3));
-        const k = 1 - 0.18 * fade;
+        const k = kb.heightScale * (1 - 0.18 * fade);
         E.dents.setAttribute('transform', `translate(310 240) scale(${k.toFixed(3)}) translate(-310 -240)`);
       } else { E.imprint.style.display = 'none'; E.tuft.style.display = 'none'; }
 
@@ -334,6 +334,7 @@
 
     return {
       afterState, onWake, softPawTarget, pose, render, overrideState, block,
+      keyboardChanged() { M.sunkOn = false; M.sunk = []; },
       setDroolSeconds(v) { droolSec = Number.isFinite(v) ? v : null; },
       setSlumpSeconds(v) { slumpSec = Number.isFinite(v) ? v : null; },
       debugProps: {

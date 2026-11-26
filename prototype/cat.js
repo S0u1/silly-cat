@@ -16,6 +16,8 @@
     'Tab', 'CapsLock', 'Escape', 'ShiftLeft', 'ControlLeft', 'AltLeft', 'MetaLeft',
   ]);
 
+  const FULL_LEFT_CODES = new Set(['F1', 'F2', 'F3', 'F4', 'F5', 'F6']);
+
   const EYE = { L: { cx: 345, cy: 178, r: 29 }, R: { cx: 455, cy: 178, r: 29 } };
   const GAZE_HOLD_MS = 3000, GAZE_FALLOFF = 160;
   const GAZE_TAU = 60, GAZE_SLOW_TAU = 3 * GAZE_TAU;
@@ -161,6 +163,7 @@
     Delete: 'Del', Insert: 'Ins', Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn',
     PrintScreen: 'PrtSc', ScrollLock: 'ScrLk', Pause: 'Pause', NumLock: 'NumLk', Fn: 'Fn',
   };
+  const FULL_KEY_SYMBOLS = new Map([['Power', 'Pwr'], ['Sleep', 'Slp'], ['WakeUp', 'Wk'], ['LaunchApp2', 'Calc']]);
   function keycapText(code, side) { // eslint-disable-line no-unused-vars
     if (KEY_SYMBOLS[code]) return KEY_SYMBOLS[code];
     let m;
@@ -279,6 +282,7 @@
 
     // ---------- 扩展钩子 ----------
     const mods = [];
+    let requestedKeyboard = kb.style;
     const call = (name, ...a) => { for (const m of mods) if (m[name]) m[name](...a); };
     const ask = (name, ...a) => {
       for (const m of mods) if (m[name]) { const r = m[name](...a); if (r) return r; }
@@ -296,12 +300,16 @@
     }
     function restPoint(side) {
       const c = kb.center(REST_KEY[side]);
-      return { x: c.x, y: c.y - 14 };
+      return { x: c.x, y: c.y - 14 * kb.heightScale };
     }
     const paws = { L: makePaw('L'), R: makePaw('R') };
     // 鼠标那一侧的爪：只在发飙抓鼠标、修理时用；平时操作鼠标的是尾巴，两只爪都留在键盘上
     const mousePaw = () => (S.mouseSide === 'right' ? paws.R : paws.L);
-    const mouseHome = () => MOUSE_HOME[S.mouseSide];
+    const mouseHome = () => {
+      const home = MOUSE_HOME[S.mouseSide];
+      // 给鼠标外描边和左右各 6px 的位移留出空间。
+      return kb.style === 'full' ? { x: home.x + Math.sign(home.x - kb.pivot.x) * 6, y: home.y } : home;
+    };
     const mousePoint = () => ({ x: mouseHome().x + S.mouseOff.x, y: mouseHome().y + S.mouseOff.y });
     // 尾巴要不要去操作鼠标：鼠标最近动过/点过，且醒着（睡着、发飙、罢工、修理时都不去）
     const tailWanted = (now) => now < S.mouseActiveUntil &&
@@ -321,7 +329,7 @@
         const other = primary === paws.R ? paws.L : paws.R;
         return primary.held.length > 0 ? other : primary;
       }
-      return LEFT_CODES.has(code) ? paws.L : paws.R;
+      return LEFT_CODES.has(code) || (kb.style === 'full' && FULL_LEFT_CODES.has(code)) ? paws.L : paws.R;
     }
 
     function targetOf(paw, now) {
@@ -334,9 +342,12 @@
       return { id: 'rest', pressing: false };
     }
 
+    const displayKey = (code, side) =>
+      (kb.style === 'full' ? FULL_KEY_SYMBOLS.get(code) : null) ?? keycapText(code, side);
+    const pawOnKeyDy = () => PAW_ON_KEY_DY * kb.heightScale;
     function keyPoint(code, side) {
       const c = kb.center(code);
-      if (c) return { x: c.x, y: c.y + PAW_ON_KEY_DY };
+      if (c) return { x: c.x, y: c.y + pawOnKeyDy() };
       return kb.edgePoint(code, side);
     }
 
@@ -354,6 +365,7 @@
 
     // ---------- 抽象输入事件 ----------
     const api = {
+      setKeyboardStyle(style) { if (SillyKeyboard.isStyle(style)) requestedKeyboard = style; },
       keyDown(code) {
         if (guard('keyDown', code)) return;
         const now = performance.now();
@@ -373,7 +385,7 @@
         if (S.excited) S.excitedUntil = now + 1000;
         const at = keyPoint(code, paw.side);
         const style = ask('keycapStyle', now) || (S.excited ? 'hot' : '');
-        fx.spawn(keycapText(code, paw.side), at.x, at.y - PAW_ON_KEY_DY, style, now);
+        fx.spawn(displayKey(code, paw.side), at.x, at.y - pawOnKeyDy(), style, now);
         call('afterKeyDown', code, now);
       },
       keyUp(code) {
@@ -858,6 +870,12 @@
         last = now;
         const rm = reducedMotion();
         update(now);
+        if (requestedKeyboard !== kb.style && !ask('blocksKeyboardChange', now)) {
+          releaseKeys();
+          S.lookCode = null;
+          kb.setStyle(requestedKeyboard);
+          call('keyboardChanged');
+        }
         const P = defaultPose();
         call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
         setCatHidden(P.hideCat);
@@ -902,16 +920,19 @@
       const H = S.headTf, a = -H.rot * Math.PI / 180, vx = x - H.tx - 400, vy = y - H.ty - 262;
       return { x: 400 + (vx * Math.cos(a) - vy * Math.sin(a)) / H.sx, y: 262 + (vx * Math.sin(a) + vy * Math.cos(a)) / H.sy };
     }
-    function releaseAll() { // 发飙时松开所有键和鼠标（画面上）
+    function releaseKeys() {
       for (const code of S.pressed.keys()) kb.setDown(code, false);
       S.pressed.clear();
       for (const p of [paws.L, paws.R]) { p.held.length = 0; p.releaseAt = 0; }
+    }
+    function releaseAll() { // 发飙时松开所有键和鼠标（画面上）
+      releaseKeys();
       for (const b of S.mouseButtons) if (el.mouseBtn[b]) el.mouseBtn[b].classList.remove('down');
       S.mouseButtons.clear();
       S.mouseActiveUntil = 0;
     }
     const ctx = {
-      S, STATES, el, kb, fx, paws, keycapText, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead, choosePaw,
+      S, STATES, el, kb, fx, paws, keycapText: displayKey, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead, choosePaw,
       releaseAll, reducedMotion, clamp, approach, f1, pointerInScene, followsPointer, shoulders: SHOULDER,
     };
     for (const make of modules) mods.push(make(ctx) || {});

@@ -317,6 +317,8 @@ html:is([data-cat="lihua"], [data-cat="maine"][data-art-style="line"]) #scene .a
 #scene .kb-case { fill: var(--cream); stroke: var(--ink); stroke-width: 5; stroke-linejoin: round; }
 #scene .kb-lip { fill: var(--cream-dark); stroke: var(--ink); stroke-width: 5; stroke-linejoin: round; }
 #scene .key-cap { fill: var(--cream); stroke: var(--ink); stroke-width: 2.5; }
+#scene .kb-full .key-cap { stroke-width: 2; }
+#scene .kb-full .key-label { font-size: 7px; }
 #scene .key-label { fill: var(--ink); font-size: 9px; font-weight: 600; text-anchor: middle; font-family: inherit; pointer-events: none; }
 #scene .key { transition: transform 40ms ease-out; }
 /* 键区整体转了 180°，本地 -2px 等于画面里往下沉 2px */
