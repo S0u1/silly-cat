@@ -3,7 +3,7 @@
 //   sleepy  困了：犯困（drowsy）期间，进度 = 犯困以来的无输入时长 / 入睡时间的后一半，满了就睡着
 //   annoyed 烦躁：疲劳值 ≥ 0.5 时（不在发飙、罢工、修理中），进度 = 疲劳值本身，满了就发飙
 //   calming 消气中：罢工期间，进度 = 已累计休息时长 / 需要休息的时长，满了就转回来修键盘
-// 同一时刻只显示一条：calming > annoyed > sleepy。出现、消失、换种类都淡入淡出（prefers-reduced-motion 下直接切）。
+// 同一时刻只显示一条：罢工消气 > 起床气或刚消气 > 烦躁 > 犯困。
 (function () {
   'use strict';
 
@@ -13,6 +13,8 @@
     annoyed: { label: '烦躁', cls: 'sb-annoyed' },
     calming: { label: '消气中', cls: 'sb-calming' },
     rage: { cls: 'sb-annoyed' },
+    grump: { label: '起床气', cls: 'sb-annoyed' },
+    grumpCalm: { label: '消气了', cls: 'sb-calming' },
   };
   // 画面坐标：键盘底边（含下沿）在 y≈590，网页版 viewBox 底边是 620，桌面版是 640
   const BOX = { x: 300, y: 4, w: 200, h: 20 };     // 猫头顶正上方（耳尖上面）
@@ -56,6 +58,8 @@
       const I = info();
       if (I.phase === 'rage' && status()?.rage) return { kind: 'rage', progress: 1 };
       if (I.phase === 'strike') return { kind: 'calming', progress: I.rest };
+      const grump = opts.grump?.status(now);
+      if (grump) return grump;
       if (!I.phase && I.fatigue >= 0.5) return { kind: 'annoyed', progress: I.fatigue };
       // 再核对一次无输入时长：修理结束那一帧 fatigue.js 刚把 lastInput 重置，S.state 还留着重置前算出的 drowsy
       if (S.state === STATES.DROWSY && now - S.lastInput >= S.sleepMs / 2) return { kind: 'sleepy', progress: valueOf('sleepy', now) };
@@ -74,6 +78,8 @@
       if (kind === 'rage') return 1;
       if (kind === 'annoyed') return I.fatigue;
       if (kind === 'calming') return I.rest === null ? 1 : I.rest;
+      if (kind === 'grump') return opts.grump?.anger() ?? 0;
+      if (kind === 'grumpCalm') return 1;
       return 0;
     }
 

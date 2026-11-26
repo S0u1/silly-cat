@@ -9,7 +9,6 @@
     { code: 'KeyH', time: 1360, x: 660, y: 530, roll: 60 },
   ];
   const MOUTH = { x: 400, y: 244 };
-  const CORNER = { x: 621, y: 375 };
   const CHEW_MARK = 1850;
   const MARK_LIFE = 60000;
   const REPAIR_FIRST = 320, REPAIR_GAP = 345, REPAIR_FLIGHT = 290;
@@ -80,21 +79,19 @@
       </g>`);
     $('keyboard').insertAdjacentHTML('beforeend', `
       <g id="dog-sockets" style="display:none" aria-hidden="true">
-        ${PULLS.map(({ code }) => {
-          const { x, y } = kb.center(code);
-          return `<g id="dog-socket-${code}" transform="translate(${x} ${y})">
+        ${PULLS.map(({ code }) => `
+          <g id="dog-socket-${code}">
             <rect x="-10" y="-10.5" width="20" height="21" rx="3" fill="#26232b" stroke="#625a63" stroke-width="1.15"/>
             <path d="M -2.2 -6 H 2.2 V -2.2 H 6 V 2.2 H 2.2 V 6 H -2.2 V 2.2 H -6 V -2.2 H -2.2 Z"
               fill="#b29a83" stroke="#786a60" stroke-width=".8"/>
             <path d="M -1 -5 H 1.8 M -4.5 -1 H -2.3" fill="none" stroke="#ddc2a2" stroke-width=".9" stroke-linecap="round"/>
-          </g>`;
-        }).join('')}
+          </g>`).join('')}
       </g>
       <g id="dog-toothmarks" style="display:none" aria-hidden="true" fill="none" stroke-linecap="round">
-        <path d="M 602 382 Q 605 391 611 389 M 611 381 Q 613 390 618 388 M 623 386 Q 621 394 627 395
-          M 628 396 Q 626 405 633 405 M 631 406 Q 627 413 633 414" stroke="#795943" stroke-width="3"/>
-        <path d="M 602 385 Q 605 393 611 391 M 613 385 Q 615 391 619 390 M 622 390 Q 622 396 627 397
-          M 629 400 Q 627 406 632 407" stroke="#fff0d4" stroke-width="1.6"/>
+        <path d="M -19 7 Q -16 16 -10 14 M -10 6 Q -8 15 -3 13 M 2 11 Q 0 19 6 20
+          M 7 21 Q 5 30 12 30 M 10 31 Q 6 38 12 39" stroke="#795943" stroke-width="3"/>
+        <path d="M -19 10 Q -16 18 -10 16 M -8 10 Q -6 16 -2 15 M 1 15 Q 1 21 6 22
+          M 8 25 Q 6 31 11 32" stroke="#fff0d4" stroke-width="1.6"/>
       </g>`);
     face.insertAdjacentHTML('afterbegin', `
       <g id="dog-bite-mouth" style="display:none" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round">
@@ -113,11 +110,27 @@
     const paper = $('dog-paper'), caps = $('dog-caps'), sockets = $('dog-sockets'), marks = $('dog-toothmarks');
     const scraps = SCRAPS.map((_, i) => $('dog-scrap-' + i));
     const keys = PULLS.map((pull) => ({
-      ...pull, home: kb.center(pull.code), cap: $('dog-cap-' + pull.code), socket: $('dog-socket-' + pull.code),
+      ...pull, cap: $('dog-cap-' + pull.code), socket: $('dog-socket-' + pull.code),
       gone: false,
     }));
+    let corner;
     let marksUntil = 0;
     let biteShown = false, headForward = false;
+
+    function keyboardChanged() {
+      const { x, y, w } = kb.bounds;
+      corner = { x: x + w - 16, y: y + 1 };
+      marks.setAttribute('transform', `translate(${corner.x} ${corner.y})`);
+      for (const key of keys) {
+        key.home = kb.center(key.code);
+        position(key.socket, key.home.x, key.home.y, 0, kb.heightScale);
+      }
+    }
+    keyboardChanged();
+
+    function placeCap(key, x, y, angle, size = 1) {
+      position(key.cap, x, y, angle, size * kb.heightScale);
+    }
 
     function setBite(on, gape = 1) {
       if (on !== biteShown) {
@@ -171,8 +184,8 @@
       const chew = chewAt(t);
       const nearCorner = paw.side === 'L';
       return {
-        id: 'rage', x: mix(rest.x, nearCorner ? 605 : 489, chew),
-        y: mix(rest.y, nearCorner ? 402 : 421, chew), tau: 38,
+        id: 'rage', x: mix(rest.x, corner.x - (nearCorner ? 16 : 132), chew),
+        y: mix(rest.y, corner.y + (nearCorner ? 27 : 46), chew), tau: 38,
       };
     }
 
@@ -197,10 +210,10 @@
         const chew = chewAt(t);
         if (chew > 0) {
           const nibble = Math.sin((t - 1820) / 17);
-          tx += (CORNER.x - MOUTH.x - 12) * chew;
-          ty += (CORNER.y - MOUTH.y + nibble * 3) * chew;
+          tx += (corner.x - MOUTH.x - 12) * chew;
+          ty += (corner.y - MOUTH.y + nibble * 3) * chew;
           turn += (16 + nibble * 2.6) * chew;
-          P.look = CORNER;
+          P.look = corner;
         }
         P.headX += tx;
         P.headY += ty;
@@ -238,13 +251,13 @@
         if (age < 0) continue;
         alpha(key.cap, 1);
         if (age >= 505) {
-          position(key.cap, key.x, key.y, key.roll);
+          placeCap(key, key.x, key.y, key.roll);
           continue;
         }
         if (age < 92) {
           const pull = smooth(age / 92);
           const mouth = ctx.headToScene(MOUTH.x, MOUTH.y);
-          position(key.cap, mix(key.home.x, mouth.x, pull), mix(key.home.y, mouth.y, pull) - 7 * Math.sin(Math.PI * pull), key.roll * 0.25 * pull);
+          placeCap(key, mix(key.home.x, mouth.x, pull), mix(key.home.y, mouth.y, pull) - 7 * Math.sin(Math.PI * pull), key.roll * 0.25 * pull);
           continue;
         }
         const depth = pullDepth(92);
@@ -254,7 +267,7 @@
         const fromY = mix(MOUTH.y, key.home.y - 2, depth) + neck * (1 - Math.cos(angle));
         const p = limit((age - 92) / 325);
         const bounce = Math.sin(Math.PI * limit((age - 417) / 88)) * 12;
-        position(key.cap, mix(fromX, key.x, 1 - (1 - p) ** 1.5),
+        placeCap(key, mix(fromX, key.x, 1 - (1 - p) ** 1.5),
           mix(fromY, key.y, p) - 100 * Math.sin(Math.PI * p) - bounce, mix(key.roll * 0.25, key.roll, p));
       }
     }
@@ -265,7 +278,7 @@
         setHole(key, age < REPAIR_FLIGHT, !rm && age >= REPAIR_FLIGHT);
         if (age >= REPAIR_FLIGHT) continue;
         if (rm || age < 0) {
-          position(key.cap, key.x, key.y, key.roll);
+          placeCap(key, key.x, key.y, key.roll);
           alpha(key.cap, rm ? 1 : 1 - smooth((age + 110) / 110));
           continue;
         }
@@ -273,7 +286,7 @@
         const p = limit(age / REPAIR_FLIGHT);
         const e = smooth(p);
         alpha(key.cap, 1);
-        position(key.cap, mix(mouth.x, key.home.x, e),
+        placeCap(key, mix(mouth.x, key.home.x, e),
           mix(mouth.y, key.home.y, e) - 38 * Math.sin(Math.PI * p),
           mix(key.roll, 0, p), mix(0.58, 1, smooth(p * 2.8)));
       }
@@ -287,8 +300,8 @@
         if (age < 0) continue;
         const p = limit(age / (560 + 31 * (i % 4)));
         const size = 0.7 + 0.34 * (i % 3);
-        position(g, mix(CORNER.x - 9, x, 1 - (1 - p) ** 1.55),
-          mix(CORNER.y - 6, y, p) - loft * Math.sin(Math.PI * p), rotation * p, mix(0.55, size, smooth(p * 4)));
+        position(g, mix(corner.x - 9, x, 1 - (1 - p) ** 1.55),
+          mix(corner.y - 6, y, p) - loft * Math.sin(Math.PI * p), rotation * p, mix(0.55, size, smooth(p * 4)));
       }
     }
 
@@ -327,7 +340,7 @@
       if (fresh || lingering) alpha(marks, fresh || phase.fixedFinishedRepair ? 1 : (marksUntil - now) / 1000);
     }
 
-    return { pose, ragePaw, render, hide, resetDamage, repairFinished, onWake, holeCount };
+    return { pose, ragePaw, render, hide, resetDamage, repairFinished, onWake, holeCount, keyboardChanged };
   }
 
   window.SillyDogMischief = { create };

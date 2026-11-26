@@ -104,6 +104,7 @@ fn code_for_scan(scan: u32, ext: bool) -> Option<&'static str> {
         match scan {
             0x1C => "NumpadEnter",
             0x1D => "ControlRight",
+            0x21 => "LaunchApp2",
             0x35 => "NumpadDivide",
             0x37 => "PrintScreen",
             0x38 => "AltRight",
@@ -122,6 +123,9 @@ fn code_for_scan(scan: u32, ext: bool) -> Option<&'static str> {
             0x5B => "MetaLeft",
             0x5C => "MetaRight",
             0x5D => "ContextMenu",
+            0x5E => "Power",
+            0x5F => "Sleep",
+            0x63 => "WakeUp",
             0xF1 => "Lang2", // Hanja
             0xF2 => "Lang1", // Hangul / 한영
             _ => return None,

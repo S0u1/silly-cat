@@ -7,6 +7,17 @@ const tapKey = (scene) => {
   scene.pet.keyUp('KeyK');
 };
 
+function translation(node) {
+  const [, x, y] = node.getAttribute('transform').match(/^translate\(([-.\d]+) ([-.\d]+)\)/);
+  return { x: Number(x), y: Number(y) };
+}
+
+function assertNearCenter(node, center, tolerance = 0.08) {
+  const point = translation(node);
+  assert.ok(Math.hypot(point.x - center.x, point.y - center.y) < tolerance,
+    `expected (${point.x}, ${point.y}) to be near (${center.x}, ${center.y})`);
+}
+
 function waitForPhase(scene, phase, timeout = 8000) {
   const deadline = scene.now + timeout;
   while (scene.debug.pushPhase !== phase && scene.now < deadline) {
@@ -181,6 +192,72 @@ test('dog destruction leaves keyboard holes and tooth marks, then repair restore
   assert.equal(scene.keyboard.codes().filter(scene.keyboard.isGone).length, 0);
   assert.equal(scene.node('dog-toothmarks').style.display, '');
 });
+
+for (const keyboardStyle of ['compact', 'full']) {
+  test(`the dog only reaches visible keys on the ${keyboardStyle} keyboard`, () => {
+    const scene = harness({ keyboardStyle });
+    const hiddenCode = keyboardStyle === 'compact' ? 'F12' : 'Fn';
+    scene.pet.keyDown(hiddenCode);
+    scene.advance(16);
+    assert.ok(scene.debug.pressed.includes(hiddenCode));
+    assert.equal(scene.debug.floaters.length, 0);
+    assert.equal(scene.debug.paws.left, 'rest');
+    assert.equal(scene.debug.paws.right, 'rest');
+    scene.pet.keyUp(hiddenCode);
+
+    const code = keyboardStyle === 'compact' ? 'KeyK' : 'F12';
+    scene.pet.keyDown(code);
+    scene.advance(400);
+    assert.equal(scene.debug.paws.right, code);
+    const target = scene.keyboard.center(code);
+    assertNearCenter(scene.node('paw-l'), {
+      x: target.x, y: target.y + scene.rig().paws.keyY * scene.keyboard.heightScale,
+    }, 0.1);
+  });
+
+  test(`the dog removes and returns caps at the ${keyboardStyle} key centers`, () => {
+    const scene = harness({ keyboardStyle, fatigue: true, demo: { name: 'rage', loop: false } });
+    const codes = ['KeyB', 'KeyN', 'KeyM', 'KeyH'];
+    scene.advance(16);
+    assert.equal(scene.debug.state, 'rage');
+    const startedAt = scene.now;
+    for (const [i, code] of codes.entries()) {
+      scene.advance(startedAt + 400 + 320 * i);
+      const center = scene.keyboard.center(code);
+      assertNearCenter(scene.node('dog-socket-' + code), center);
+      assertNearCenter(scene.node('dog-cap-' + code), center);
+      assert.equal(scene.keyboard.isGone(code), true);
+    }
+
+    scene.advance(startedAt + 1850);
+    const marks = scene.node('dog-toothmarks');
+    const { x, y, w } = scene.keyboard.bounds;
+    assert.equal(marks.style.display, '');
+    assert.deepEqual(translation(marks), { x: x + w - 16, y: y + 1 });
+    const nextStyle = keyboardStyle === 'compact' ? 'full' : 'compact';
+    scene.pet.setKeyboardStyle(nextStyle);
+    scene.advance(startedAt + 3000);
+    assert.equal(scene.keyboard.style, keyboardStyle);
+    const repairAt = startedAt + 8000;
+    scene.advance(repairAt);
+    assert.equal(scene.debug.state, 'repair');
+    for (const [i, code] of codes.entries()) {
+      const arrival = repairAt + 320 + 345 * i + 290;
+      scene.advance(arrival - 1);
+      assertNearCenter(scene.node('dog-cap-' + code), scene.keyboard.center(code), 0.6);
+      assert.equal(scene.keyboard.isGone(code), true);
+      scene.advance(arrival);
+      assert.equal(scene.keyboard.isGone(code), false);
+    }
+    scene.advance(startedAt + 10400);
+    assert.equal(scene.keyboard.style, nextStyle);
+    const newBounds = scene.keyboard.bounds;
+    assert.deepEqual(translation(marks), { x: newBounds.x + newBounds.w - 16, y: newBounds.y + 1 });
+    for (const code of codes) {
+      assertNearCenter(scene.node('dog-socket-' + code), scene.keyboard.center(code));
+    }
+  });
+}
 
 test('both paws stay on stage in a frozen dog bite pose', () => {
   const scene = harness({ fatigue: true, demo: { name: 'rage', at: 405 } });

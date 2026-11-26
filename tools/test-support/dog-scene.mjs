@@ -13,7 +13,8 @@ const scripts = [...scene.matchAll(/<script src="([^"]+)"><\/script>/g)]
 
 export function harness({ species = 'dog', demo = null, sleepSeconds = 60,
   random = 0.1, push = false, pushEnabled = true, fatigue = false,
-  workSeconds = 10, restSeconds = 5, mouseSide = 'right', reducedMotion = false } = {}) {
+  workSeconds = 10, restSeconds = 5, mouseSide = 'right', reducedMotion = false,
+  keyboardStyle = 'compact' } = {}) {
   let now = 0, nextFrame;
   const nodes = new Map();
   function registerIds(source) {
@@ -82,7 +83,7 @@ export function harness({ species = 'dog', demo = null, sleepSeconds = 60,
   sandbox.window = sandbox;
   for (const script of scripts) script.runInContext(sandbox);
   sandbox.SillySpecies.select(species);
-  const keyboard = sandbox.SillyKeyboard.build(nodes.get('keyboard'));
+  const keyboard = sandbox.SillyKeyboard.build(nodes.get('keyboard'), keyboardStyle);
   const modules = [];
   let fatigueModule, pushModule;
   if (fatigue) modules.push((ctx) => (fatigueModule = sandbox.SillyFatigue.create(ctx, { workSeconds, restSeconds, demo })));

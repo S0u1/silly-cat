@@ -38,15 +38,33 @@ function load({ search = '', settings } = {}) {
   let onSettings;
   const desktop = settings !== undefined;
   const noOpModule = new Proxy({}, { get: () => () => {} });
+  const keyboard = {};
+  const isStyle = (style) => style === 'compact' || style === 'full';
+  function applyKeyboardStyle(style) {
+    keyboard.style = isStyle(style) ? style : 'compact';
+  }
   const sandbox = createContext({
     document, location: { search }, URLSearchParams, Option: function () {},
     setInterval() {},
     SillyArt: { apply() {} },
-    SillyKeyboard: { build() {} },
+    SillyKeyboard: {
+      isStyle,
+      build(_node, style) {
+        applyKeyboardStyle(style);
+        return keyboard;
+      },
+    },
     SillyCat: {
       createCat({ modules }) {
-        for (const use of modules) use({});
-        return noOpModule;
+        const installed = modules.map(use => use({}));
+        return {
+          setKeyboardStyle(style) {
+            applyKeyboardStyle(style);
+            for (const module of installed) module?.keyboardChanged?.();
+          },
+          setSleepSeconds() {},
+          setEyesFollow() {},
+        };
       },
     },
     SillyInput: { createBrowserInput() {} },
@@ -65,7 +83,7 @@ function load({ search = '', settings } = {}) {
       event: { async listen(name, handler) { assert.equal(name, 'silly:settings'); onSettings = handler; } },
     } : undefined,
   });
-  for (const name of ['Sleep', 'Fatigue', 'Push', 'StatusBar', 'Headphones']) {
+  for (const name of ['Sleep', 'Fatigue', 'Grump', 'Push', 'Swat', 'Purr', 'StatusBar', 'Headphones', 'HeadFollow']) {
     sandbox['Silly' + name] = { create: () => noOpModule };
   }
   sandbox.window = sandbox;
@@ -73,6 +91,10 @@ function load({ search = '', settings } = {}) {
   entry.runInContext(sandbox);
   return {
     calls,
+    assertKeyboard(style, shadowY) {
+      assert.equal(keyboard.style, style);
+      assert.equal(node('ground-shadow').attributes.get('cy'), shadowY);
+    },
     assertPet(name, style) {
       assert.equal(document.title, '捣蛋' + name);
       assert.equal(node('scene').attributes.get('aria-label'), '坐在键盘后面的' + name);
@@ -126,4 +148,19 @@ test('a new desktop selection takes precedence over the pending startup settings
   await flush();
   scene.assertPet('柯基', 'fur');
   assert.deepEqual(scene.calls, ['捣蛋柯基']);
+});
+
+test('desktop settings preserve the keyboard URL override on startup and update it on save', async () => {
+  const scene = load({ search: '?kb=full', settings: { cat: 'corgi', keyboard: 'compact' } });
+  await flush();
+  scene.assertPet('柯基', 'fur');
+  scene.assertKeyboard('full', 560);
+
+  scene.save({ cat: 'corgi', keyboard: 'compact' });
+  scene.assertKeyboard('compact', 594);
+
+  const configured = load({ search: '?kb=unknown', settings: { cat: 'collie', keyboard: 'full' } });
+  await flush();
+  configured.assertPet('边牧', 'fur');
+  configured.assertKeyboard('full', 560);
 });

@@ -159,13 +159,15 @@
     // ---------- 鼠标按键（全局） ----------
     function onButton({ button, down }) {
       if (down) {
-        if (!clickThrough && (over || pet)) return; // 交给页面（摸头 / 拖动）
         if (heldButtons.has(button)) return;
-        heldButtons.set(button, { since: performance.now() }); sink.pointerDown(button);
+        const forwarded = !!clickThrough || !(over || pet);
+        heldButtons.set(button, { since: performance.now(), forwarded });
+        if (forwarded) sink.pointerDown(button);
       } else {
         if (button === 0) endPet(); // 指针跑出窗口后松开也能结束摸头
-        if (!heldButtons.has(button)) return;
-        heldButtons.delete(button); sink.pointerUp(button);
+        const press = heldButtons.get(button);
+        heldButtons.delete(button);
+        if (press?.forwarded) sink.pointerUp(button);
       }
     }
 
@@ -236,11 +238,14 @@
             continue;
           }
           held.delete(id);
-          release(id);
+          release(id, press);
         }
       }
       reconcile(keys, heldKeys, state?.keys, (key) => sink.keyUp(key));
-      reconcile(buttons, heldButtons, state?.buttons, (button) => sink.pointerUp(button));
+      reconcile(buttons, heldButtons, state?.buttons, (button, press) => {
+        if (button === 0) endPet();
+        if (press.forwarded) sink.pointerUp(button);
+      });
     }
 
     let polling = false;
@@ -280,16 +285,22 @@
     }
     function onPointerDown(e) {
       if (clickThrough !== false) return;
+      const inBubble = inPermBubble(e.target);
+      const h = headEls.find((n) => isNode(e.target) && n.contains(e.target)) ||
+        (e.button === 0 && !inBubble ? opts.retrieveTarget?.(e.target) : null);
+      // 原生拖动可能吞掉 DOM 抬起事件，和其他按住状态一起用系统快照校正。
+      if (!h && inScene(e.target) && !heldButtons.has(e.button)) {
+        heldButtons.set(e.button, { since: performance.now(), forwarded: false });
+      }
       if (e.button === 2) { openMenu(e); return; }
       if (e.button !== 0) return;
-      if (inPermBubble(e.target)) {
+      if (inBubble) {
         e.preventDefault();
         if (visibleNotice === permissionNotice) invoke('open_settings').catch(() => {});
         else if (visibleNotice?.installable) window.SillyUpdater.install(onUpdate);
         else onUpdate(null);
         return;
       }
-      const h = headEls.find((n) => isNode(e.target) && n.contains(e.target)) || opts.retrieveTarget?.(e.target);
       if (h) {
         headEl = h;
         pet = { id: e.pointerId, target: h };
@@ -303,7 +314,10 @@
       }
     }
     function onPointerMove(e) { if (pet && e.pointerId === pet.id) sink.petMove(...rel(e)); }
-    function onPointerUp(e) { if (pet && e.pointerId === pet.id) endPet(); }
+    function onPointerUp(e) {
+      if (heldButtons.get(e.button)?.forwarded === false) heldButtons.delete(e.button);
+      if (pet && e.pointerId === pet.id) endPet();
+    }
     // 右键有画面的地方：弹出原生右键菜单（不摸头、不拖动）。pointerdown 和 contextmenu 都可能来，只弹一次：
     // 菜单开着时（invoke 要等菜单关掉才返回）和关掉后 500ms 内再来的右键事件都忽略
     let menuOpen = false;
@@ -352,12 +366,16 @@
 
     function releaseAll() {
       for (const c of heldKeys.keys()) { heldKeys.delete(c); sink.keyUp(c); }
-      for (const b of heldButtons.keys()) { heldButtons.delete(b); sink.pointerUp(b); }
+      for (const [b, press] of heldButtons) {
+        heldButtons.delete(b);
+        if (press.forwarded) sink.pointerUp(b);
+      }
       endPet();
     }
 
     return {
       releaseAll,
+      pointerHeld: () => heldButtons.size > 0,
       debug: Object.freeze({
         get over() { return over; },
         get ignoring() { return ignoring; },

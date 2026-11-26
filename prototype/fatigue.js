@@ -317,10 +317,24 @@
     function afterKeyDown(code, now) { visual.afterKeyDown?.(now); }
 
     // ---------- 几何 ----------
+    function fitKeyboard(x, y) {
+      return { x: kb.pivot.x + (x - kb.pivot.x) * kb.caseScale.x, y: kb.bounds.y + (y - kb.bounds.y) * kb.caseScale.y };
+    }
+
+    function updateCrackTransform() {
+      if (kb.style === 'compact') E.crack.removeAttribute('transform');
+      else {
+        const { x } = kb.pivot, { y } = kb.bounds;
+        E.crack.setAttribute('transform', `translate(${x} ${y}) scale(${kb.caseScale.x} ${kb.caseScale.y}) translate(${-x} ${-y})`);
+      }
+    }
+    updateCrackTransform();
+
     function kbToScene(p) { // 键盘本地点 -> 画面点（键盘歪斜时）
       const a = F.kbRot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
-      const vx = p.x - 400, vy = p.y - 477;
-      return { x: 400 + vx * c - vy * s, y: 477 + vx * s + vy * c + F.kbTy };
+      const { x, y } = kb.pivot;
+      const vx = p.x - x, vy = p.y - y;
+      return { x: x + vx * c - vy * s, y: y + vx * s + vy * c + F.kbTy };
     }
     function slamPoint() { const H = ctx.mouseHome(); return { x: H.x + (mouseDir() < 0 ? 12 : -12), y: 566 }; }
     function overheadPoint() {
@@ -365,7 +379,7 @@
       if (t < MOUSE_T0) {
         const c = ((t - SMASH_T0) % SMASH_CYCLE) / SMASH_CYCLE, up = c < 0.6;
         return up ? { id: 'rage', x: rig.turnX + side * raised.x, y: raised.y, tau: 45 }
-          : { id: 'rage', x: rig.turnX + side * smash.x, y: smash.y, tau: 12, pressing: true };
+          : { id: 'rage', ...fitKeyboard(rig.turnX + side * smash.x, smash.y), tau: 12, pressing: true };
       }
       const tm = t - MOUSE_T0;
       if (tm < M_END) {
@@ -411,9 +425,9 @@
       return { id: 'repair', ...ctx.restPoint(paw.side), tau: 50 };
     }
     function clothPoint(t) { // 抹布：上半横擦一趟、下半擦回来
-      if (t < WIPE_MID) { const p = (t - WIPE_T0) / (WIPE_MID - WIPE_T0); return kbToScene({ x: lerp(200, 604, p), y: 430 + 6 * Math.sin(p * Math.PI * 6) }); }
+      if (t < WIPE_MID) { const p = (t - WIPE_T0) / (WIPE_MID - WIPE_T0); return kbToScene(fitKeyboard(lerp(200, 604, p), 430 + 6 * Math.sin(p * Math.PI * 6))); }
       const p = (t - WIPE_MID) / (WIPE_T1 - WIPE_MID);
-      return kbToScene({ x: lerp(604, 200, p), y: 524 + 6 * Math.sin(p * Math.PI * 6) });
+      return kbToScene(fitKeyboard(lerp(604, 200, p), 524 + 6 * Math.sin(p * Math.PI * 6)));
     }
 
     // ---------- 特效对象 ----------
@@ -424,6 +438,7 @@
     function placeDebris(d) { d.g.setAttribute('transform', `translate(${f1(d.x)} ${f1(d.y)}) rotate(${d.r.toFixed(1)})`); }
     function makeCap(code, x, y) {
       const g = addSvg(E.debris, '<g class="debris-cap"><rect x="-13" y="-12" width="26" height="24" rx="5"/><text x="0" y="4"></text></g>');
+      if (kb.style === 'full') for (const child of g.children) child.setAttribute('transform', `scale(${kb.heightScale})`);
       g.querySelector('text').textContent = ctx.keycapText(code, null);
       const k = kb.center(code);
       const d = { kind: 'cap', code, side: k && k.x > 400 ? 'L' : 'R', g, x, y, vx: 0, vy: 0, r: 0, vr: 0, floor: rand(588, 610), rest: false };
@@ -799,7 +814,7 @@
       }
       F.kbRot = kr; F.kbTy = ky;
       if (!rm && now - F.kbShakeStart < 140) { kx += rand(-1.5, 1.5); ky += rand(-1.5, 1.5); }
-      E.keyboard.setAttribute('transform', `translate(${f1(kx)} ${f1(ky)}) rotate(${kr.toFixed(2)} 400 477)`);
+      E.keyboard.setAttribute('transform', `translate(${f1(kx)} ${f1(ky)}) rotate(${kr.toFixed(2)} ${kb.pivot.x} ${kb.pivot.y})`);
       show(E.crack, 'crack', F.broken);
       const bLeft = F.mouseBandageUntil - now;
       show(E.mouseBandage, 'mbandage', bLeft > 0 && !F.shattered);
@@ -858,6 +873,8 @@
     return {
       refresh, overrideState, block, keycapStyle, afterKeyDown, forcedPawTarget, pose, render,
       onWake(now) { visual.onWake?.(now); },
+      keyboardChanged() { updateCrackTransform(); dog?.keyboardChanged(); },
+      blocksKeyboardChange: () => !!(F.rage || F.strike || F.repair),
       setWorkSeconds(v) { workSec = clamp(+v || 90, 1, 36000); },
       setRestSeconds(v) { restSec = clamp(+v || 20, 1, 36000); },
       // 只读：给状态条用。fatigue = 疲劳值 0–1；phase = 'rage' | 'strike' | 'repair' | null；

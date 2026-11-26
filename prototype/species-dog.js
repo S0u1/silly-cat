@@ -127,6 +127,9 @@
     idleTilt: true,
     tailTyping: true,
     petTongue: true,
+    swat: false,
+    purr: false,
+    grump: { look: { x: 400, y: 182 }, effect: { x: 520, y: 121 } },
     push: { snatch: true },
     sleep: {
       ...cat.sleep,
@@ -186,7 +189,7 @@
         shine: { x: -5, y: -5.4, radius: 4.4 },
         glint: { x: 5.2, y: 5.6, radius: 1.7 },
         dot: { radius: 7.5, lead: 0.3 },
-        gaze: { max: 5, taper: 0, restY: 0, keyX: 4, keyY: 2 },
+        gaze: { max: 5, taper: 0, restY: 0, keyX: 4, keyY: 2, pointerParallax: false },
         arcs: {
           closed: { halfWidth: 13, edgeY: 2, controlY: 10 },
           happy: { halfWidth: 13, edgeY: 4, controlY: -9 },

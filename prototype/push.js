@@ -16,7 +16,7 @@
   const lerp = (a, b, t) => a + (b - a) * t;
 
   function create(ctx, opts = {}) {
-    const { S, STATES, paws, mouseHome, mousePoint, mousePaw, restPoint, reducedMotion, clamp, f1 } = ctx;
+    const { S, STATES, kb, paws, mouseHome, mousePoint, mousePaw, restPoint, reducedMotion, clamp, f1 } = ctx;
     const demo = opts.demo && DEMOS.includes(opts.demo.name) ? opts.demo : null;
     const pinned = demo && Number.isFinite(demo.at);
     const t0 = performance.now();
@@ -61,7 +61,11 @@
     const unit = (p) => clamp(p, 0, 1);
     const ease = (p) => { const u = unit(p); return u * u * (3 - 2 * u); };
     const blendPoint = (a, b, p) => ({ x: lerp(a.x, b.x, p), y: lerp(a.y, b.y, p) });
-    const cupX = (d, distance) => 400 + d * (MUG.x - 400 + distance);
+    const cupX = (d, distance) => {
+      // 杯的影子半宽 26px，给外壳描边和杯身摆动留空。
+      const x = kb.style === 'full' ? kb.bounds.x + kb.bounds.w + 31 : MUG.x;
+      return 400 + d * (x - 400 + distance);
+    };
 
     // 同一份采样用于正常播放、打断时保留位移，以及 demo 跳到指定帧。
     function sequence(t, from, d, acting) {
@@ -166,7 +170,7 @@
         }
       } else if (run) {
         const t = now - run.start;
-        if (S.state !== STATES.AWAKE || !enabled || reducedMotion() || newDir !== dir) {
+        if (S.state !== STATES.AWAKE || !enabled || opts.blocked?.() || reducedMotion() || newDir !== dir) {
           if (t < SHOVE) cancel(now);
           else run.acting = false;
         }
@@ -191,7 +195,7 @@
       }
       if (settling && now - settling.at >= SETTLE_MS) settling = null;
       const sinceKey = now - S.lastKeyAt;
-      if (enabled && !run && now >= nextPush && backAt === -Infinity && S.state === STATES.AWAKE &&
+      if (enabled && !run && !opts.blocked?.() && now >= nextPush && backAt === -Infinity && S.state === STATES.AWAKE &&
           !reducedMotion() && sinceKey >= IDLE_MIN && sinceKey <= IDLE_MAX &&
           now - S.lastInput >= IDLE_MIN && !S.pressed.size && !S.mouseButtons.size &&
           (!snatch() || (canSnatch() && now - S.lastPointerMove >= IDLE_MIN))) {
@@ -251,7 +255,7 @@
       if (paw === mousePaw()) return null;
       const frame = view(now);
       if (!frame.acting || frame.t < REACH || frame.t >= WATCH) return null;
-      return { id: 'push', ...pawTarget(frame, paw), tau: frame.t >= SHOVE ? 9 : 16 };
+      return { id: 'push', ...pawTarget(frame, paw), armBend: kb.style === 'full' ? 52 : 0, tau: frame.t >= SHOVE ? 9 : 16 };
     }
 
     function pose(now, dt, rm, P) {
@@ -273,6 +277,11 @@
         } else if (t < WATCH) P.look = blendPoint(lookFront, cup, ease((t - SHOVE) / 100));
         else P.look = blendPoint(cup, { x: 400 + 400 * d, y: 700 }, ease((t - WATCH) / 210));
 
+        if (kb.style === 'full') {
+          const lean = ease((t - REACH) / 300) * (1 - ease((t - WATCH) / 230));
+          P.bodyX += 14 * d * lean;
+          P.headX += 5 * d * lean;
+        }
         P.headRot += d * headTilt * ease(t / 200) * (1 - ease((t - SHOVE) / 300));
         if (t >= WATCH && t < SMUG) P.headY += watchDip * Math.sin(Math.PI * (t - WATCH) / (SMUG - WATCH));
         if (t >= SMUG) {
@@ -353,6 +362,9 @@
         return frame.acting || frame.hidden || frame.phase === 'return';
       },
       isActing(now) { return view(now).acting; },
+      blocksKeyboardChange(now) {
+        return !!run || view(now).acting || !!settling;
+      },
       setEnabled(v) { enabled = v; },
       setEverySeconds(v) {
         const seconds = interval(v);

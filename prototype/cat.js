@@ -18,6 +18,8 @@
 
   const currentSpecies = () => window.SillySpecies.current;
   const currentRig = () => currentSpecies().rig;
+  const FULL_LEFT_CODES = new Set(['F1', 'F2', 'F3', 'F4', 'F5', 'F6']);
+
   const GAZE_HOLD_MS = 3000, GAZE_FALLOFF = 160;
   const GAZE_TAU = 60, GAZE_SLOW_TAU = 3 * GAZE_TAU;
   // mouseSide 也按猫的视角：'right' = 猫的右手边 = 画面里键盘左侧
@@ -25,6 +27,7 @@
   const REST_KEY = { L: 'KeyG', R: 'KeyK' };
   const MOUSE_HOLD_MS = 1500;
   const RELEASE_MS = 120;
+  const HOLD_RELAX_MS = 10000; // 同一颗键按住超过这么久，爪子先收回来（多半是抬起丢了）
   const EXCITE_COUNT = 6;     // 一秒内超过 6 次
   const TYPING_WAG_MS = 3000, TYPING_WAG_MAX_HZ = 8;
   const TILT_IDLE_MS = 6000, TILT_COOLDOWN_MS = 20000;
@@ -160,6 +163,7 @@
     Delete: 'Del', Insert: 'Ins', Home: 'Home', End: 'End', PageUp: 'PgUp', PageDown: 'PgDn',
     PrintScreen: 'PrtSc', ScrollLock: 'ScrLk', Pause: 'Pause', NumLock: 'NumLk', Fn: 'Fn',
   };
+  const FULL_KEY_SYMBOLS = new Map([['Power', 'Pwr'], ['Sleep', 'Slp'], ['WakeUp', 'Wk'], ['LaunchApp2', 'Calc']]);
   function keycapText(code, side) { // eslint-disable-line no-unused-vars
     if (KEY_SYMBOLS[code]) return KEY_SYMBOLS[code];
     let m;
@@ -269,6 +273,7 @@
       armG: { l: $('arm-l'), r: $('arm-r') },
     };
     const fx = createKeycapFx($('fx-layer'));
+    const scene = $('scene');
 
     const t0 = performance.now();
     const initialRig = currentRig();
@@ -278,10 +283,11 @@
       state: STATES.AWAKE,
       excited: false, excitedUntil: 0, keyTimes: [],
       sleepMs: sleepSeconds * 1000, lastInput: t0, sleepSince: 0,
-      pressed: new Map(),               // code -> 'L' | 'R'
+      pressed: new Map(),               // code -> 'L' | 'R'；画面上没画的键是 null（爪子不动）
+      heldSince: new Map(),             // code -> 按下时刻，只记爪子去按的键
       mouseSide, mouseActiveUntil: 0, mouseButtons: new Set(), mouseOff: { x: 0, y: 0 },
       mouseLean: 0,
-      pet: null,                        // { nx, ny }
+      pet: null,                        // { nx, ny, movedAt }
       shakeStart: -1e9, nodStart: -1e9, lastKeyAt: -1e9, lookCode: null, lookSide: 'R',
       pointer: null, followingPointer: false, lastPointerMove: t0,
       lid: 0.18, pupil: { L: { x: 0, y: initialGazeY }, R: { x: 0, y: initialGazeY } },
@@ -298,6 +304,7 @@
 
     // ---------- 扩展钩子 ----------
     const mods = [];
+    let requestedKeyboard = kb.style;
     const call = (name, ...a) => { for (const m of mods) if (m[name]) m[name](...a); };
     const ask = (name, ...a) => {
       for (const m of mods) if (m[name]) { const r = m[name](...a); if (r) return r; }
@@ -316,16 +323,17 @@
     function restPoint(side) {
       const { restKeys, restY } = currentRig().paws;
       const c = kb.center(restKeys?.[side] ?? REST_KEY[side]);
-      return { x: c.x, y: c.y + restY };
+      return { x: c.x, y: c.y + restY * kb.heightScale };
     }
     const paws = { L: makePaw('L'), R: makePaw('R') };
     // 发飙和修理沿用鼠标所在侧；平时是否用爪操作鼠标，由物种决定。
     const mousePaw = () => (S.mouseSide === 'right' ? paws.R : paws.L);
     const mouseHome = () => {
       const home = MOUSE_HOME[S.mouseSide], reach = currentSpecies().mouseReach;
-      if (!reach) return home;
       const direction = S.mouseSide === 'left' ? 1 : -1;
-      return { x: home.x - direction * reach.inset, y: home.y - reach.rise };
+      // 全尺寸键盘给鼠标外描边和左右各 6px 的位移留出空间。
+      const padding = kb.style === 'full' ? 6 : 0;
+      return { x: home.x + direction * (padding - (reach?.inset ?? 0)), y: home.y - (reach?.rise ?? 0) };
     };
     const mousePoint = () => {
       const off = motionFrame?.mouse || S.mouseOff;
@@ -361,22 +369,25 @@
         const other = primary === paws.R ? paws.L : paws.R;
         return primary.held.length > 0 ? other : primary;
       }
-      return LEFT_CODES.has(code) ? paws.L : paws.R;
+      return LEFT_CODES.has(code) || (kb.style === 'full' && FULL_LEFT_CODES.has(code)) ? paws.L : paws.R;
     }
 
     function targetOf(paw, now, P) {
       const forced = ask('forcedPawTarget', paw, now); // 发飙、罢工等：压过一切
       if (forced) return forced;
-      if (paw.held.length) return { id: paw.held[paw.held.length - 1], pressing: true };
-      if (now < paw.releaseAt && paw.lastCode) return { id: paw.lastCode, pressing: false };
+      const last = paw.held[paw.held.length - 1];
+      if (last && now - (S.heldSince.get(last) ?? now) < HOLD_RELAX_MS) return { id: last, pressing: true };
+      if (!last && now < paw.releaseAt && paw.lastCode) return { id: paw.lastCode, pressing: false };
       const soft = ask('softPawTarget', paw, now); // 抹嘴、趴着摊开：只在没按键时
       if (soft) return soft;
       return pawMouseTarget(paw, now, P) || { id: 'rest', pressing: false };
     }
 
+    const displayKey = (code, side) =>
+      (kb.style === 'full' ? FULL_KEY_SYMBOLS.get(code) : null) ?? keycapText(code, side);
     function keyPoint(code, side) {
       const c = kb.center(code);
-      if (c) return { x: c.x, y: c.y + currentRig().paws.keyY };
+      if (c) return { x: c.x, y: c.y + currentRig().paws.keyY * kb.heightScale };
       return kb.edgePoint(code, side);
     }
 
@@ -395,37 +406,46 @@
 
     // ---------- 抽象输入事件 ----------
     const api = {
+      setKeyboardStyle(style) { if (SillyKeyboard.isStyle(style)) requestedKeyboard = style; },
       keyDown(code) {
         if (guard('keyDown', code)) return;
         const now = performance.now();
         noteInput(now);
         if (S.pressed.has(code)) return;
+        S.lastKeyAt = now;
+        S.keyTimes.push(now);
+        pruneKeyTimes(now);
+        if (S.keyTimes.filter(at => now - at <= 1000).length > EXCITE_COUNT) S.excited = true;
+        if (S.excited) S.excitedUntil = now + 1000;
+        if (!kb.has(code)) {
+          // 画面上没画这颗键（紧凑键盘的小键盘、方向键、F 键，以及 Fn 等）：爪子不去够，
+          // 只算在打字——照常不让猫睡着、累积疲劳。
+          S.pressed.set(code, null);
+          call('afterKeyDown', code, now);
+          return;
+        }
         const paw = choosePaw(code, now);
         S.pressed.set(code, paw.side);
+        S.heldSince.set(code, now);
         paw.held.push(code);
         kb.setDown(code, true);
         S.nodStart = now;
-        S.lastKeyAt = now;
         S.lookCode = code;
         S.lookSide = paw.side;
-        S.keyTimes.push(now);
-        pruneKeyTimes(now);
-        if (S.keyTimes.filter((at) => now - at <= 1000).length > EXCITE_COUNT) S.excited = true;
-        if (S.excited) S.excitedUntil = now + 1000;
         const center = kb.center(code);
-        const at = center || kb.edgePoint(code, paw.side);
         const style = ask('keycapStyle', now) || (S.excited ? 'hot' : '');
-        // 可见键帽在键心出字，画面外的键沿用键盘边缘上方的留白。
-        fx.spawn(keycapText(code, paw.side), at.x, at.y + (center ? 0 : 8), style, now);
+        fx.spawn(displayKey(code, paw.side), center.x, center.y, style, now);
         call('afterKeyDown', code, now);
       },
       keyUp(code) {
         if (guard('keyUp', code)) return;
         const now = performance.now();
+        if (!S.pressed.has(code)) return;
         const side = S.pressed.get(code);
-        if (!side) return;
         noteInput(now);
         S.pressed.delete(code);
+        S.heldSince.delete(code);
+        if (!side) return; // 没画出来的键，爪子本来就没动
         const paw = paws[side];
         const i = paw.held.lastIndexOf(code);
         if (i >= 0) paw.held.splice(i, 1);
@@ -468,14 +488,17 @@
         const now = performance.now();
         noteInput(now);
         if (ask('handlePetStart', now)) return;
-        S.pet = { nx: nx || 0, ny: ny || 0 };
+        S.pet = { nx: nx || 0, ny: ny || 0, movedAt: -Infinity };
         S.state = STATES.PETTED;
+        call('onPetStart', now);
       },
       petMove(nx, ny) {
         if (guard('petMove', null)) return;
         if (!S.pet) return;
+        const now = performance.now();
+        if (nx !== S.pet.nx || ny !== S.pet.ny) S.pet.movedAt = now;
         S.pet.nx = nx; S.pet.ny = ny;
-        S.lastInput = performance.now();
+        S.lastInput = now;
       },
       petEnd() {
         if (guard('petEnd', null)) return;
@@ -483,6 +506,7 @@
         S.pet = null;
         S.lastInput = performance.now();
         S.state = STATES.AWAKE;
+        call('onPetEnd', S.lastInput);
       },
       setSleepSeconds(sec) {
         S.sleepMs = clamp(+sec || 20, 1, 3600) * 1000;
@@ -719,7 +743,7 @@
         const vx = ex - sh.x, vy = ey - sh.y, len = Math.hypot(vx, vy) || 1;
         let nx = -vy / len, ny = vx / len;
         if (nx * outward < 0) { nx = -nx; ny = -ny; }
-        const bend = reaching ? reachBend : clamp(curve.base - len * curve.falloff, curve.min, curve.max);
+        const bend = reaching ? reachBend : Math.max(t.armBend || 0, clamp(curve.base - len * curve.falloff, curve.min, curve.max));
         const cx = sh.x + vx * 0.5 + nx * bend, cy = sh.y + vy * 0.5 + ny * bend;
         const d = `M ${f1(sh.x)} ${f1(sh.y)} Q ${f1(cx)} ${f1(cy)} ${f1(ex)} ${f1(ey)}`;
         SillyArt.arm(paw.artSlot, sh, cx, cy, ex, ey);
@@ -821,10 +845,10 @@
       const fixed = P.dogPoseTime != null;
       const puppy = eyes.style === 'puppy';
       const nodes = puppy ? el.puppyEye : el.eye;
-      const tongueOut = currentSpecies().petTongue && S.state === STATES.PETTED;
+      const tongueOut = currentSpecies().petTongue && S.state === STATES.PETTED && !P.suppressPetSmile;
       const mode = tongueOut ? 'happy' : S.state === STATES.ASLEEP || P.eyesClosed ? 'closed'
-        : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
-      const mouthMode = puppy && (P.dogGrip ? 'closed' : tongueOut ? 'petted' : mode === 'closed' ? 'closed' : 'open');
+        : (P.eyesHappy || (S.state === STATES.PETTED && !P.suppressPetSmile)) ? 'happy' : 'open';
+      const mouthMode = puppy && (P.dogGrip || P.suppressPetSmile || mode === 'closed' ? 'closed' : tongueOut ? 'petted' : 'open');
       if (mouthMode !== S.dogMouthMode) {
         S.dogMouthMode = mouthMode;
         const { open, closed, tongue } = el.dogMouth;
@@ -859,9 +883,9 @@
       } else if (now - S.lastKeyAt < 1200 && S.lookCode) {
         const p = keyPoint(S.lookCode, S.lookSide);
         lx = clamp((p.x - eyeX) / 220, -1, 1) * gaze.keyX; ly = gaze.keyY;
-      } else if (!P.hideCat && eyesFollow && S.pointer && now < S.pointer.at + GAZE_HOLD_MS) {
+      } else if (followsPointer(now, P)) {
         // 头部的屏幕矩阵同时包含场景留边和本帧写入的头部姿态。
-        const headToScreen = el.head.getScreenCTM();
+        const headToScreen = nodes.L.open.getScreenCTM();
         if (headToScreen) {
           pointerTarget = new DOMPoint(S.pointer.x, S.pointer.y).matrixTransform(headToScreen.inverse());
           tau = S.state === STATES.DROWSY ? GAZE_SLOW_TAU : GAZE_TAU;
@@ -1129,6 +1153,12 @@
         last = now;
         const rm = reducedMotion();
         update(now, dt, rm);
+        if (requestedKeyboard !== kb.style && !ask('blocksKeyboardChange', now)) {
+          releaseKeys();
+          S.lookCode = null;
+          kb.setStyle(requestedKeyboard);
+          call('keyboardChanged');
+        }
         const P = defaultPose();
         call('pose', now, dt, rm, P);   // 扩展模块叠加姿态
         const rig = currentRig();
@@ -1155,6 +1185,16 @@
       }
     }
     // ---------- 给扩展模块的上下文 ----------
+    function pointerInScene() {
+      const matrix = S.pointer && scene.getScreenCTM();
+      return matrix ? new DOMPoint(S.pointer.x, S.pointer.y).matrixTransform(matrix.inverse()) : null;
+    }
+    function followsPointer(now, P) {
+      return eyesFollow && S.pointer && now < S.pointer.at + GAZE_HOLD_MS &&
+        !S.pet && !P.look && !P.hideCat && !P.eyesClosed && !P.eyesHappy && P.dogPoseTime == null &&
+        (S.state === STATES.AWAKE || S.state === STATES.DROWSY) &&
+        !(now - S.lastKeyAt < 1200 && S.lookCode);
+    }
     function headToScene(x, y) { // 头部局部坐标 -> 画面坐标（按当前头部变换）
       const { tx, ty, rot, sx, sy, pivot } = S.headTf;
       const a = rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
@@ -1169,18 +1209,24 @@
         y: pivot.y + (vx * Math.sin(a) + vy * Math.cos(a)) / H.sy,
       };
     }
-    function releaseAll() { // 发飙时松开所有键和鼠标（画面上）
+    function releaseKeys() {
       for (const code of S.pressed.keys()) kb.setDown(code, false);
       S.pressed.clear();
+      S.heldSince.clear();
       for (const p of [paws.L, paws.R]) { p.held.length = 0; p.releaseAt = 0; }
+    }
+    function releaseAll() { // 发飙时松开所有键和鼠标（画面上）
+      releaseKeys();
       for (const b of S.mouseButtons) if (el.mouseBtn[b]) el.mouseBtn[b].classList.remove('down');
       S.mouseButtons.clear();
       S.mouseActiveUntil = 0;
     }
     const ctx = {
-      S, STATES, el, kb, fx, paws, keycapText, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead,
-      releaseAll, reducedMotion, clamp, approach, f1,
+      S, STATES, el, kb, fx, paws, keycapText: displayKey, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead, choosePaw,
+      releaseAll, reducedMotion, clamp, approach, f1, pointerInScene, followsPointer,
+      get species() { return currentSpecies(); },
       get rig() { return currentRig(); },
+      get shoulders() { return currentRig().paws.shoulders; },
     };
     for (const make of modules) mods.push(make(ctx) || {});
 
