@@ -73,6 +73,21 @@ def dog_closeups(dest, pet):
     sheet.save(dest / 'closeups.jpg', quality=85)
 
 
+def dog_stage_comparison(dest, pet):
+    preview = ROOT / '.art-src/tianyuan/v4/preview-front.png'
+    if not preview.is_file():
+        return
+    width, height = 800, 620
+    sheet = Image.new('RGB', (width * 2, height + 24), '#f4f1ed')
+    draw = ImageDraw.Draw(sheet)
+    frames = (('Application idle', dest / pet / 'fur' / 'idle.png'), ('Approved v4 preview', preview))
+    for i, (label, path) in enumerate(frames):
+        with Image.open(path) as frame:
+            sheet.paste(frame.resize((width, height), Image.Resampling.LANCZOS), (i * width, 24))
+        draw.text((i * width + 8, 6), label, fill='#302e2b')
+    sheet.save(dest / 'stage-vs-preview.jpg', quality=85)
+
+
 def capture_pair(open_page, dest, cat, style):
     folder = dest / cat / style
     folder.mkdir(parents=True, exist_ok=True)
@@ -121,9 +136,10 @@ def capture_gaze(open_page, dest, cat, style):
     # Typing owns the gaze for 1.2 seconds. Use an untouched page for mouse tracking.
     with open_page((400, 310), urlencode(dict(cat=cat, style=style)), False) as (ev, shot):
         positions = []
+        pupil = '#puppy-l-pupil' if cat in DOGS else '#pupil-l'
         for name, x in [('left', 0.05), ('right', 0.95)]:
             ev(f"window.dispatchEvent(new PointerEvent('pointermove', {{pointerType:'mouse',clientX:innerWidth*{x},clientY:innerHeight*.4}})), advance(18)")
-            positions.append(float(ev("document.querySelector('#pupil-l').getAttribute('cx')")))
+            positions.append(float(ev(f"document.querySelector('{pupil}').getAttribute('cx')")))
             shot().save(dest / cat / style / f'gaze-{name}.png')
         if positions[0] >= positions[1]:
             raise ValueError(f'{cat}/{style}: pupil did not follow horizontal motion')
@@ -164,6 +180,7 @@ def capture(args):
     if args.pets in ('dogs', 'all'):
         dog_overview(dest, 'tianyuan')
         dog_closeups(dest, 'tianyuan')
+        dog_stage_comparison(dest, 'tianyuan')
     print(f'{len(list(dest.rglob("*.png")))} screenshots')
 
 

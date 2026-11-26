@@ -242,6 +242,13 @@
         lid: $('lid-' + s), lidLine: $('lidline-' + s),
       };
     };
+    const puppyEyeEls = (s) => ({
+      open: $('puppy-' + s + '-open'), clip: $('clip-puppy-' + s).querySelector('circle'),
+      closed: $('eye-' + s + '-closed'), happy: $('eye-' + s + '-happy'),
+      pupil: $('puppy-' + s + '-pupil'), shine: $('puppy-' + s + '-shine'),
+      glint: $('puppy-' + s + '-glint'), lid: $('puppy-' + s + '-lid'),
+      lidLine: $('puppy-' + s + '-lidline'),
+    });
     const el = {
       head: $('cat-head'), body: $('cat-body'),
       // 尾巴画两份：#tail 在身体后面（整条），#tail-front 在鼠标上面（遮罩掉身体那一块，只露出绕到前面的部分）
@@ -255,6 +262,7 @@
       mouse: $('mouse'), mouseBtn: { 0: $('mouse-btn-l'), 2: $('mouse-btn-r') },
       zzz: [$('z1'), $('z2'), $('z3')],
       eye: { L: eyeEls('l'), R: eyeEls('r') },
+      puppyEye: { L: puppyEyeEls('l'), R: puppyEyeEls('r') },
       tongue: document.getElementById('dog-tongue'),
       headShape: [$('head-fill'), $('head-line')],
       headClip: $('clip-head-path'),
@@ -769,15 +777,21 @@
 
     let drawnEyes = null;
     function applyEyeGeometry(eyes) {
+      const puppy = eyes.style === 'puppy';
+      const nodes = puppy ? el.puppyEye : el.eye;
+      const inactive = puppy ? el.eye : el.puppyEye;
       for (const s of ['L', 'R']) {
-        const { x, y } = eyes.centers[s], e = el.eye[s];
+        const { x, y } = eyes.centers[s], e = nodes[s];
         const { radius, lidPadding } = eyes;
-        for (const n of [e.sclera, e.ring, e.clip]) {
+        inactive[s].open.style.display = 'none';
+        for (const n of puppy ? [e.clip, e.pupil] : [e.sclera, e.ring, e.clip]) {
           n.setAttribute('cx', x); n.setAttribute('cy', y); n.setAttribute('r', radius);
         }
-        e.iris.setAttribute('r', eyes.irisRadius);
+        if (puppy) e.glint.setAttribute('r', eyes.glint.radius);
+        else e.iris.setAttribute('r', eyes.irisRadius);
         e.shine.setAttribute('r', eyes.shine.radius);
-        const left = x - radius - lidPadding, right = x + radius + lidPadding;
+        const edge = radius + lidPadding + (puppy ? eyes.gaze.max : 0);
+        const left = x - edge, right = x + edge;
         e.lid.setAttribute('x', left);
         e.lid.setAttribute('y', y - radius - lidPadding);
         e.lid.setAttribute('width', right - left);
@@ -789,12 +803,17 @@
         S.pupil[s].x = 0;
         S.pupil[s].y = eyes.gaze.restY;
       }
+      if (puppy || drawnEyes?.style === 'puppy') S.lid = eyes.restLid ?? 0.18;
+      $('scene').setAttribute('data-eye-style', eyes.style ?? 'cat');
       S.pupilR = eyes.pupil.rest;
+      S.eyeMode = null;
       drawnEyes = eyes;
     }
 
     function renderEyes(now, dt, P, eyes) {
       if (drawnEyes !== eyes) applyEyeGeometry(eyes);
+      const puppy = eyes.style === 'puppy';
+      const nodes = puppy ? el.puppyEye : el.eye;
       const tongueOut = currentSpecies().petTongue && S.state === STATES.PETTED;
       if (el.tongue) el.tongue.style.display = tongueOut ? '' : 'none';
       const mode = tongueOut ? 'happy' : S.state === STATES.ASLEEP || P.eyesClosed ? 'closed'
@@ -802,7 +821,7 @@
       if (mode !== S.eyeMode) {
         S.eyeMode = mode;
         for (const s of ['L', 'R']) {
-          const e = el.eye[s];
+          const e = nodes[s];
           e.open.style.display = mode === 'open' ? '' : 'none';
           e.closed.style.display = mode === 'closed' ? '' : 'none';
           e.happy.style.display = mode === 'happy' ? '' : 'none';
@@ -810,7 +829,7 @@
       }
       if (mode !== 'open') return;
 
-      let lidGoal = S.state === STATES.DROWSY ? 0.55 : S.excited ? 0.04 : 0.18;
+      let lidGoal = S.state === STATES.DROWSY ? 0.55 : S.excited ? 0.04 : (eyes.restLid ?? 0.18);
       lidGoal = Math.max(lidGoal, P.lidMin);
       if (now < S.blinkUntil) lidGoal = 1;
       S.lid = approach(S.lid, lidGoal, dt, now < S.blinkUntil ? 18 : 60);
@@ -844,7 +863,7 @@
       const maxGaze = gaze.max - (S.pupilR - pupil.rest) * gaze.taper;
 
       for (const s of ['L', 'R']) {
-        const { x: cx, y: cy } = centers[s], e = el.eye[s], offset = S.pupil[s];
+        const { x: cx, y: cy } = centers[s], e = nodes[s], offset = S.pupil[s];
         let x = lx, y = ly;
         if (pointerTarget) {
           const dx = pointerTarget.x - cx, dy = pointerTarget.y - cy;
@@ -859,16 +878,24 @@
           offset.y *= scale;
         }
         const px = cx + offset.x, py = cy + offset.y;
-        e.iris.setAttribute('cx', f1(cx + offset.x * irisTravel));
-        e.iris.setAttribute('cy', f1(cy + offset.y * irisTravel));
+        if (puppy) {
+          e.clip.setAttribute('cx', f1(px));
+          e.clip.setAttribute('cy', f1(py));
+          e.glint.setAttribute('cx', f1(px + eyes.glint.x));
+          e.glint.setAttribute('cy', f1(py + eyes.glint.y));
+          e.lid.setAttribute('y', f1(py - radius - lidPadding));
+        } else {
+          e.iris.setAttribute('cx', f1(cx + offset.x * irisTravel));
+          e.iris.setAttribute('cy', f1(cy + offset.y * irisTravel));
+        }
         e.pupil.setAttribute('cx', f1(px));
         e.pupil.setAttribute('cy', f1(py));
         e.pupil.setAttribute('r', f1(S.pupilR));
-        e.shine.setAttribute('cx', f1(px - S.pupilR * shine.offset));
-        e.shine.setAttribute('cy', f1(py - S.pupilR * shine.offset));
+        e.shine.setAttribute('cx', f1(px + (puppy ? shine.x : -S.pupilR * shine.offset)));
+        e.shine.setAttribute('cy', f1(py + (puppy ? shine.y : -S.pupilR * shine.offset)));
         const h = S.lid * (radius * 2 + lidPadding * 2);
         e.lid.setAttribute('height', f1(h));
-        const ly2 = cy - radius - lidPadding + h;
+        const ly2 = (puppy ? py : cy) - radius - lidPadding + h;
         e.lidLine.setAttribute('y1', f1(ly2));
         e.lidLine.setAttribute('y2', f1(ly2));
         e.lidLine.style.display = S.lid > 0.03 ? '' : 'none';

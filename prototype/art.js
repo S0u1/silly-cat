@@ -132,7 +132,7 @@
     const back = $('strike-head-shape');
     place('back-head', cfg.backHead ?? cfg.head, back, back.querySelectorAll(':scope > path, :scope > #coat-back-head-patterns'));
     place('body', cfg.body, $('cat-body'));
-    place('back-body', cfg.body, $('strike-body'));
+    place('back-body', cfg.backBody ?? cfg.body, $('strike-body'));
     const mirrorX = 2 * rig.turnX;
     for (const side of ['l', 'r']) {
       function placeEar(key, parent) {

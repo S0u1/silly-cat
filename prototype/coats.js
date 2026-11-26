@@ -33,6 +33,7 @@
       imprint: { ...defaults.imprint, ...opts.imprint },
       ear: { ...defaults.ear, ...opts.ear },
       body: { ...defaults.body, ...opts.body },
+      backBody: defaults.backBody,
       paw: { ...defaults.paw, ...opts.paw },
       arm: { ...defaults.arm, ...opts.arm },
       tail: { ...defaults.tail, ...opts.tail },
@@ -180,19 +181,9 @@
     {
       id: 'tianyuan', name: '大黄', species: 'dog', furOnly: true,
       defs: `
-        <radialGradient id="coat-tianyuan-cheeks" cy="48%" r="52%">
-          <stop offset="18%" stop-color="var(--coat-light)"/>
-          <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
-        </radialGradient>
-        <radialGradient id="coat-tianyuan-muzzle" cy="58%" r="52%">
-          <stop offset="36%" stop-color="var(--coat-light)"/>
-          <stop offset="76%" stop-color="var(--coat-light)" stop-opacity="0.55"/>
-          <stop offset="100%" stop-color="var(--coat-light)" stop-opacity="0"/>
-        </radialGradient>
-        <radialGradient id="coat-tianyuan-nose-shade" cy="42%" r="53%">
-          <stop offset="34%" stop-color="var(--coat-muzzle)" stop-opacity="0.8"/>
-          <stop offset="70%" stop-color="var(--coat-dark)" stop-opacity="0.38"/>
-          <stop offset="100%" stop-color="var(--coat-dark)" stop-opacity="0"/>
+        <radialGradient id="coat-tianyuan-muzzle" cy="52%" r="64%">
+          <stop offset="32%" stop-color="var(--coat-light)"/>
+          <stop offset="100%" stop-color="#e9c88e"/>
         </radialGradient>
         <radialGradient id="coat-tianyuan-chest">
           <stop offset="12%" stop-color="var(--coat-light)"/>
@@ -202,7 +193,7 @@
           <stop offset="20%" stop-color="var(--coat-back)"/>
           <stop offset="100%" stop-color="var(--coat-back)" stop-opacity="0"/>
         </radialGradient>
-        <linearGradient id="coat-tianyuan-arm" gradientUnits="userSpaceOnUse" x1="0" y1="298" x2="0" y2="470">
+        <linearGradient id="coat-tianyuan-arm" gradientUnits="userSpaceOnUse" x1="0" y1="298" x2="0" y2="452">
           <stop offset="15%" stop-color="var(--coat-base)"/>
           <stop offset="100%" stop-color="var(--coat-light)"/>
         </linearGradient>
@@ -211,9 +202,8 @@
           <stop offset="100%" stop-color="var(--coat-light)"/>
         </linearGradient>`,
       head: `
-        <ellipse cx="400" cy="248" rx="99" ry="52" fill="url(#coat-tianyuan-cheeks)"/>
-        <ellipse cx="400" cy="240" rx="56" ry="46" fill="url(#coat-tianyuan-muzzle)"/>
-        <ellipse cx="400" cy="220" rx="30" ry="22" fill="url(#coat-tianyuan-nose-shade)"/>`,
+        <path fill="url(#coat-tianyuan-muzzle)" d="M 400 182 C 424 182 446 214 452 246
+          C 458 274 432 292 400 292 C 368 292 342 274 348 246 C 354 214 376 182 400 182 Z"/>`,
       body: '<ellipse cx="400" cy="334" rx="78" ry="82" fill="url(#coat-tianyuan-chest)"/>',
       backBody: '<ellipse cx="400" cy="337" rx="80" ry="100" fill="url(#coat-tianyuan-back)"/>',
     },

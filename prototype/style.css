@@ -293,19 +293,25 @@ html[data-cat="tianyuan"] {
   --coat-dark: #b97e33;
   --coat-back: #c48a3a;
   --coat-light: #f3ddb0;
-  --coat-muzzle: #8a5a2b;
   --coat-ear: var(--coat-base);
   --coat-inner-ear: #e8b9a0;
   --coat-paw-l: var(--coat-light);
   --coat-paw-r: var(--coat-light);
   --coat-pad: #cfab82;
-  --coat-iris: #956337;
+  --coat-lid-l: #dca151;
+  --coat-lid-r: #dba150;
+  --coat-eye-arc-l: #3a2417;
+  --coat-eye-arc-r: #3a2417;
   --coat-nose: #251c17;
   --coat-mouth-line: #4c3022;
   --coat-tail: url(#coat-tianyuan-tail);
   --coat-tail-tip: #e9cb93;
   --coat-blush-opacity: 0.35;
 }
+#scene .puppy-pupil { fill: #3a2417; }
+#scene .puppy-lid-line { stroke: #3a2417; stroke-width: 2.8; }
+#scene[data-eye-style="puppy"] .eye-arc-l,
+#scene[data-eye-style="puppy"] .eye-arc-r { stroke-width: 3.8; }
 /* portrait-dog:end */
 
 html:not([data-cat="tianyuan"]) #scene [data-coat-pattern="tianyuan"] { display: none; }
@@ -400,6 +406,7 @@ html[data-cat="tianyuan"] #scene :is(.tail-fill, .tail-tip) { stroke-width: 22; 
 #scene .dent-in { fill: #fbc3ce; }
 #scene .dent-letter { fill: #d56f86; font-size: 8px; font-weight: 700; text-anchor: middle; font-family: inherit; opacity: 0.6; }
 #scene .tuft { fill: none; stroke: var(--ink); stroke-width: 3; stroke-linecap: round; }
+html[data-cat="tianyuan"] #scene .tuft { stroke: #754b30; stroke-width: 2.6; }
 
 /* ---------- 疲劳与情绪（fatigue.js） ---------- */
 #scene .brow { fill: none; stroke: var(--coat-brow); stroke-width: 5; stroke-linecap: round; }

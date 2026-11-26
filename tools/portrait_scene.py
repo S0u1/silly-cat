@@ -74,27 +74,19 @@ def avatar_styles(prototype, *extra_blocks):
 def dog_eyes(scene, eyes):
     for side, center in eyes["centers"].items():
         side = side.lower()
-        cx, cy = center["x"], center["y"]
-        radius, padding = eyes["radius"], eyes["lidPadding"]
-        pupil, shine = eyes["pupil"]["rest"], eyes["shine"]
-        iris_offset = eyes["gaze"]["restY"] * eyes["irisTravel"]
-        pupil_y = cy + eyes["gaze"]["restY"]
-        open_eye = by_id(scene, f"eye-{side}-open")
-        for circle in (*open_eye.findall("circle"), by_id(scene, f"clip-eye-{side}")[0]):
+        cx, cy = center["x"], center["y"] + eyes["gaze"]["restY"]
+        radius = eyes["radius"]
+        eye = by_id(scene, f"puppy-{side}-open")
+        eye.attrib.pop("style", None)
+        for circle in (by_id(eye, f"puppy-{side}-pupil"), by_id(scene, f"clip-puppy-{side}")[0]):
             circle.attrib.update(cx=str(cx), cy=str(cy), r=str(radius))
-        by_id(scene, f"iris-{side}").attrib.update(
-            cx=str(cx), cy=f"{cy + iris_offset:.1f}", r=str(eyes["irisRadius"]))
-        by_id(scene, f"pupil-{side}").attrib.update(cx=str(cx), cy=str(pupil_y), r=str(pupil))
-        offset = pupil * shine["offset"]
-        by_id(scene, f"shine-{side}").attrib.update(
-            cx=f"{cx - offset:.1f}", cy=f"{pupil_y - offset:.1f}", r=str(shine["radius"]))
-        edge = radius + padding
-        lid_height = 0.18 * (2 * edge)
-        by_id(scene, f"lid-{side}").attrib.update(
-            x=str(cx - edge), y=str(cy - edge), width=str(2 * edge), height=f"{lid_height:.1f}")
-        lid_y = f"{cy - edge + lid_height:.1f}"
-        by_id(scene, f"lidline-{side}").attrib.update(
-            x1=str(cx - edge), x2=str(cx + edge), y1=lid_y, y2=lid_y)
+        for name in ("shine", "glint"):
+            detail = eyes[name]
+            by_id(eye, f"puppy-{side}-{name}").attrib.update(
+                cx=str(cx + detail["x"]), cy=str(cy + detail["y"]), r=str(detail["radius"]))
+        # An avatar paints the fully open expression.
+        for name in ("lid", "lidline"):
+            eye.remove(by_id(eye, f"puppy-{side}-{name}"))
 
 
 def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
@@ -107,7 +99,7 @@ def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
                               "data-art-style": "fur"})
     ET.SubElement(root, "style").text = avatar_styles(prototype, "dog")
     defs = ET.SubElement(root, "defs")
-    for clip in ("clip-head", "clip-eye-l", "clip-eye-r"):
+    for clip in ("clip-head", "clip-puppy-l", "clip-puppy-r", "dog-blush"):
         defs.append(by_id(scene, clip))
     defs.extend(ET.fromstring(f"<defs>{portrait['defs']}</defs>"))
     pivot = rig["head"]["pivot"]
@@ -138,6 +130,6 @@ def dog_avatar(prototype, portrait, ear_images=(), head_image=None):
     for layer in head:
         if layer.get("data-species-face") == portrait["species"]:
             pose.extend(layer)
-        elif layer.get("id") in ("eye-l-open", "eye-r-open"):
+        elif layer.get("id") in ("puppy-l-open", "puppy-r-open"):
             pose.append(layer)
     return root

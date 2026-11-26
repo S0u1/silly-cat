@@ -89,6 +89,49 @@ const armLength = ([x0, y0, cx, cy, x1, y1]) => {
   return length;
 };
 
+test('puppy eyes have only a dark eye and two highlights; cat eye geometry survives species switching', () => {
+  for (const side of ['l', 'r']) {
+    const open = (id) => scene.split(`<g id="${id}"`)[1].split('</g>')[0];
+    assert.match(open(`eye-${side}-open`), /class="sclera"/);
+    assert.match(scene, new RegExp(`<circle class="eye-ring" cx="${side === 'l' ? 345 : 455}" cy="178" r="29"/>`));
+    const puppy = open(`puppy-${side}-open`);
+    assert.doesNotMatch(puppy, /sclera|eye-ring|iris/);
+    assert.deepEqual([...puppy.matchAll(/<circle id="[^"]+-(pupil|shine|glint)"/g)].map((m) => m[1]),
+      ['pupil', 'shine', 'glint']);
+  }
+
+  const h = harness({ species: 'cat' });
+  const catNodes = ['iris-l', 'pupil-l', 'shine-l', 'iris-r', 'pupil-r', 'shine-r'];
+  const before = h.snapshot(catNodes);
+  h.select('dog');
+  h.advance(16);
+  assert.equal(h.node('eye-l-open').style.display, 'none');
+  assert.equal(h.node('puppy-l-open').style.display, '');
+  assert.equal(h.node('puppy-l-pupil').attributes.get('r'), '18');
+  assert.equal(Number(h.node('puppy-l-lid').attributes.get('height')), 0);
+  h.pet.pointerMove(-24, 10);
+  h.advance(300);
+  assert.ok(Number(h.node('puppy-l-pupil').attributes.get('cx')) < 356);
+  h.pet.petStart(0, 0);
+  h.advance(320);
+  assert.equal(h.node('puppy-l-open').style.display, 'none');
+  assert.equal(h.node('eye-l-happy').style.display, '');
+
+  const switched = harness({ species: 'dog' });
+  switched.select('cat');
+  switched.advance(16);
+  assert.equal(switched.node('puppy-l-open').style.display, 'none');
+  assert.equal(switched.node('eye-l-open').style.display, '');
+  assert.deepEqual(switched.snapshot(catNodes), before);
+
+  const blinking = harness();
+  const lidHeight = () => Number(blinking.node('puppy-l-lid').attributes.get('height'));
+  blinking.advance(3400);
+  assert.ok(lidHeight() > 37);
+  blinking.advance(3900);
+  assert.ok(lidHeight() < 0.2);
+});
+
 test('dog uses the mouse-side paw and gives that side’s typing priority', () => {
   const h = harness();
   h.pet.pointerMove(20, -12);

@@ -30,6 +30,13 @@
     <clipPath id="clip-back-body"><path/></clipPath>
     <clipPath id="clip-eye-l"><circle cx="345" cy="178" r="29"/></clipPath>
     <clipPath id="clip-eye-r"><circle cx="455" cy="178" r="29"/></clipPath>
+    <clipPath id="clip-puppy-l"><circle cx="356" cy="170" r="18"/></clipPath>
+    <clipPath id="clip-puppy-r"><circle cx="444" cy="170" r="18"/></clipPath>
+    <radialGradient id="dog-blush">
+      <stop stop-color="#df8777" stop-opacity=".43"/>
+      <stop offset=".6" stop-color="#df8777" stop-opacity=".25"/>
+      <stop offset="1" stop-color="#df8777" stop-opacity="0"/>
+    </radialGradient>
     <!-- 前面那份尾巴的遮罩：盖掉身体（连同描边）那一块，尾巴从身后出来的部分仍被身体挡住。变换由 cat.js 跟着身体设置 -->
     <mask id="mask-tail-front" maskUnits="userSpaceOnUse" x="-20" y="-50" width="840" height="690">
       <rect x="-20" y="-50" width="840" height="690" fill="#fff"/>
@@ -76,8 +83,8 @@
       <ellipse class="blush" cx="484" cy="226" rx="13" ry="7"/>
     </g>
     <g id="face-dog-blush" data-species-face="dog" style="display:none">
-      <ellipse class="blush" cx="325" cy="220" rx="14" ry="7"/>
-      <ellipse class="blush" cx="475" cy="220" rx="14" ry="7"/>
+      <ellipse fill="url(#dog-blush)" cx="333" cy="216" rx="18" ry="10"/>
+      <ellipse fill="url(#dog-blush)" cx="467" cy="216" rx="18" ry="10"/>
     </g>
 
     <!-- 左眼（黑斑里） -->
@@ -110,6 +117,21 @@
     <path id="eye-r-closed" class="eye-arc-r" style="display:none" d="M 433 180 Q 455 196 477 180"/>
     <path id="eye-r-happy" class="eye-arc-r" style="display:none" d="M 433 186 Q 455 164 477 186"/>
 
+    <g id="puppy-l-open" clip-path="url(#clip-puppy-l)" style="display:none">
+      <circle id="puppy-l-pupil" class="puppy-pupil"/>
+      <circle id="puppy-l-shine" fill="#fff8e8"/>
+      <circle id="puppy-l-glint" fill="#f5dfc5"/>
+      <rect id="puppy-l-lid" class="lid-l"/>
+      <line id="puppy-l-lidline" class="puppy-lid-line"/>
+    </g>
+    <g id="puppy-r-open" clip-path="url(#clip-puppy-r)" style="display:none">
+      <circle id="puppy-r-pupil" class="puppy-pupil"/>
+      <circle id="puppy-r-shine" fill="#fff8e8"/>
+      <circle id="puppy-r-glint" fill="#f5dfc5"/>
+      <rect id="puppy-r-lid" class="lid-r"/>
+      <line id="puppy-r-lidline" class="puppy-lid-line"/>
+    </g>
+
     <g id="face-cat" data-species-face="cat">
       <!-- 歪的小胡子斑 -->
       <ellipse class="coat-cow-marking" cx="421" cy="214" rx="11" ry="6.5" transform="rotate(-22 421 214)"/>
@@ -125,13 +147,12 @@
     </g>
     <g id="face-dog" data-species-face="dog" style="display:none">
       <g id="dog-tongue" style="display:none">
-        <path class="ink-thin" fill="#552e2d" d="M 376 236 Q 380 240 386 240 Q 394 240 400 233 Q 406 240 414 240 Q 420 240 424 236 C 419 258 381 258 376 236 Z"/>
-        <path class="ink-thin" fill="#ed929f" d="M 389 247 Q 400 241 411 247 V 257 C 411 271 389 271 389 257 Z"/>
-        <path d="M 400 250 V 261" fill="none" stroke="#bc6372" stroke-width="2" stroke-linecap="round"/>
+        <path fill="#e99aa0" stroke="#38231a" stroke-width="2.8" d="M 391 238 Q 400 231 409 238 V 245 C 409 257 391 257 391 245 Z"/>
+        <path d="M 400 242 V 248" fill="none" stroke="#bb636d" stroke-width="1.2" stroke-linecap="round"/>
       </g>
-      <path class="ink-thin coat-mouth-line" fill="none" d="M 400 225 V 233 M 376 236 Q 380 240 386 240 Q 394 240 400 233 Q 406 240 414 240 Q 420 240 424 236"/>
-      <path class="ink-thin coat-nose" d="M 383 211 C 383 206 389 204 400 204 C 411 204 417 206 417 211 C 417 217 406 224 400 224 C 394 224 383 217 383 211 Z"/>
-      <path d="M 391 209 Q 397 206 403 208" fill="none" stroke="#fff" opacity=".22" stroke-width="2" stroke-linecap="round"/>
+      <path fill="none" stroke="#38231a" stroke-width="2.8" stroke-linecap="round" d="M 400 225 V 233 C 395 239 388 243 379 236 M 400 233 C 405 239 412 243 421 236"/>
+      <rect x="383" y="205" width="34" height="18" rx="9" fill="#211916"/>
+      <path d="M 389 211 Q 394 208 399 208.5" fill="none" stroke="#83665a" stroke-width="1.6" stroke-linecap="round"/>
     </g>
 
     <!-- 以下由 sleep.js / fatigue.js 控制显示 -->
@@ -328,8 +349,7 @@
   <svg>
     <g data-part="ear-l">
       <path class="coat-ear ink dog-ear-outline"/>
-      <path class="coat-inner-ear" d="M 304 106 C 300 88 301 62 307 47 Q 329 66 345 100 Z"/>
-      <path fill="var(--coat-light)" opacity=".65" d="M 309 106 Q 310 92 307 84 L 317 91 L 318 82 L 332 99 Z"/>
+      <path class="coat-inner-ear" d="M 302 110 C 299 90 302 58 310 53 Q 326 48 350 88 Z"/>
     </g>
     <g data-part="back-ear-l">
       <path class="coat-ear ink dog-ear-outline"/>
@@ -337,8 +357,7 @@
     <g data-part="ear-r">
       <g transform="translate(800 0) scale(-1 1)">
         <path class="coat-ear ink dog-ear-outline"/>
-        <path class="coat-inner-ear" d="M 304 106 C 300 88 301 62 307 47 Q 329 66 345 100 Z"/>
-        <path fill="var(--coat-light)" opacity=".65" d="M 309 106 Q 310 92 307 84 L 317 91 L 318 82 L 332 99 Z"/>
+        <path class="coat-inner-ear" d="M 302 110 C 299 90 302 58 310 53 Q 326 48 350 88 Z"/>
       </g>
     </g>
     <g data-part="back-ear-r">
@@ -354,7 +373,7 @@
       </g>
     </g>
     <g data-part="brows">
-      <path class="brow" d="M 329 130 Q 342 127 368 141 M 471 130 Q 458 127 432 141"/>
+      <path class="brow" d="M 338 140 Q 350 138 371 151 M 462 140 Q 450 138 429 151"/>
     </g>
   </svg>
 </template>
