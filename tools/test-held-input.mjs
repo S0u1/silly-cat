@@ -228,6 +228,10 @@ test('鼠标穿透开启时按下身体不启动拖动，关闭后可以拖动',
   app.clickThrough(false);
   app.pointerDown(body);
   assert.deepEqual(app.gestures, ['dragStart']);
+  assert.equal(app.desktop.pointerHeld(), true);
+  app.button(0, false);
+  assert.equal(app.desktop.pointerHeld(), false);
+  assert.deepEqual(app.mouseButtons, []);
 });
 
 test('每秒移动鼠标时，漏掉抬起的 F12 仍会在连续不可读 5 秒后释放', async () => {

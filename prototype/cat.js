@@ -256,6 +256,7 @@
       armG: { l: $('arm-l'), r: $('arm-r') },
     };
     const fx = createKeycapFx($('fx-layer'));
+    const scene = $('scene');
 
     const t0 = performance.now();
     const S = {
@@ -422,14 +423,17 @@
         if (guard('petStart', null)) return;
         const now = performance.now();
         noteInput(now);
-        S.pet = { nx: nx || 0, ny: ny || 0 };
+        S.pet = { nx: nx || 0, ny: ny || 0, movedAt: -Infinity };
         S.state = STATES.PETTED;
+        call('onPetStart', now);
       },
       petMove(nx, ny) {
         if (guard('petMove', null)) return;
         if (!S.pet) return;
+        const now = performance.now();
+        if (nx !== S.pet.nx || ny !== S.pet.ny) S.pet.movedAt = now;
         S.pet.nx = nx; S.pet.ny = ny;
-        S.lastInput = performance.now();
+        S.lastInput = now;
       },
       petEnd() {
         if (guard('petEnd', null)) return;
@@ -437,6 +441,7 @@
         S.pet = null;
         S.lastInput = performance.now();
         S.state = STATES.AWAKE;
+        call('onPetEnd', S.lastInput);
       },
       setSleepSeconds(sec) {
         S.sleepMs = clamp(+sec || 20, 1, 3600) * 1000;
@@ -541,7 +546,7 @@
         let nx = -vy / len, ny = vx / len;
         const outward = paw.side === 'L' ? 1 : -1; // 猫的左爪在观众右侧
         if (nx * outward < 0) { nx = -nx; ny = -ny; }
-        const bend = clamp(70 - len * 0.25, 8, 45);
+        const bend = Math.max(t.armBend || 0, clamp(70 - len * 0.25, 8, 45));
         const cx = sh.x + vx * 0.5 + nx * bend, cy = sh.y + vy * 0.5 + ny * bend;
         const d = `M ${f1(sh.x)} ${f1(sh.y)} Q ${f1(cx)} ${f1(cy)} ${f1(ex)} ${f1(ey)}`;
         SillyArt.arm(paw.artSlot, sh, cx, cy, ex, ey);
@@ -589,7 +594,8 @@
     }
 
     function renderEyes(now, dt, P) {
-      const mode = S.state === STATES.ASLEEP || P.eyesClosed ? 'closed' : (S.state === STATES.PETTED || P.eyesHappy) ? 'happy' : 'open';
+      const mode = S.state === STATES.ASLEEP || P.eyesClosed ? 'closed' :
+        (P.eyesHappy || (S.state === STATES.PETTED && !P.suppressPetSmile)) ? 'happy' : 'open';
       if (mode !== S.eyeMode) {
         S.eyeMode = mode;
         for (const s of ['L', 'R']) {
@@ -614,9 +620,9 @@
       } else if (now - S.lastKeyAt < 1200 && S.lookCode) {
         const p = keyPoint(S.lookCode, S.lookSide);
         lx = clamp((p.x - 400) / 220, -1, 1) * 5; ly = 4;
-      } else if (!P.hideCat && eyesFollow && S.pointer && now < S.pointer.at + GAZE_HOLD_MS) {
+      } else if (followsPointer(now, P)) {
         // 头部的屏幕矩阵同时包含场景留边和本帧写入的头部姿态。
-        const headToScreen = el.head.getScreenCTM();
+        const headToScreen = el.eye.L.open.getScreenCTM();
         if (headToScreen) {
           pointerTarget = new DOMPoint(S.pointer.x, S.pointer.y).matrixTransform(headToScreen.inverse());
           tau = S.state === STATES.DROWSY ? GAZE_SLOW_TAU : GAZE_TAU;
@@ -876,6 +882,16 @@
       }
     }
     // ---------- 给扩展模块的上下文 ----------
+    function pointerInScene() {
+      const matrix = S.pointer && scene.getScreenCTM();
+      return matrix ? new DOMPoint(S.pointer.x, S.pointer.y).matrixTransform(matrix.inverse()) : null;
+    }
+    function followsPointer(now, P) {
+      return eyesFollow && S.pointer && now < S.pointer.at + GAZE_HOLD_MS &&
+        !S.pet && !P.look && !P.hideCat && !P.eyesClosed && !P.eyesHappy &&
+        (S.state === STATES.AWAKE || S.state === STATES.DROWSY) &&
+        !(now - S.lastKeyAt < 1200 && S.lookCode);
+    }
     function headToScene(x, y) { // 头部局部坐标 -> 画面坐标（按当前头部变换）
       const { tx, ty, rot, sx, sy } = S.headTf;
       const a = rot * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
@@ -895,8 +911,8 @@
       S.mouseActiveUntil = 0;
     }
     const ctx = {
-      S, STATES, el, kb, fx, paws, keycapText, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead,
-      releaseAll, reducedMotion, clamp, approach, f1,
+      S, STATES, el, kb, fx, paws, keycapText, keyPoint, mousePoint, mousePaw, mouseHome, restPoint, headToScene, sceneToHead, choosePaw,
+      releaseAll, reducedMotion, clamp, approach, f1, pointerInScene, followsPointer, shoulders: SHOULDER,
     };
     for (const make of modules) mods.push(make(ctx) || {});
 

@@ -189,7 +189,7 @@
   <div class="row" data-bool="statusBar">
     <div class="head"><label for="f-statusBar">显示状态条</label>
       <span class="field"><input id="f-statusBar" type="checkbox"></span></div>
-    <div class="hint">快睡着、快发飙、正在消气时，猫头顶出现一条进度条。</div>
+    <div class="hint">快睡着、快发飙、闹起床气或正在消气时，猫头顶出现进度条。</div>
   </div>
   <div class="row" data-key="pushEvery">
     <div class="head"><label for="f-push">推东西</label>
@@ -200,9 +200,26 @@
     <div class="err"></div>
   </div>
   <div class="row" data-bool="eyesFollow">
-    <div class="head"><label for="f-eyesFollow">眼睛跟着鼠标</label>
+    <div class="head"><label for="f-eyesFollow">眼睛和头跟着鼠标</label>
       <span class="field"><input id="f-eyesFollow" type="checkbox" aria-describedby="eyes-follow-hint"></span></div>
-    <div id="eyes-follow-hint" class="hint">醒着时，猫的眼睛会跟着鼠标指针看；指针停下几秒后收回目光。</div>
+    <div id="eyes-follow-hint" class="hint">醒着时，猫会转眼、转头看指针。指针停下几秒后，猫会转回来。</div>
+  </div>
+  <div class="row" data-bool="swat">
+    <div class="head"><label for="f-swat">鼠标靠近会挨打</label>
+      <span class="field"><input id="f-swat" type="checkbox"></span></div>
+  </div>
+  <div class="row" data-bool="grump">
+    <div class="head"><label for="f-grump">被吵醒会起床气</label>
+      <span class="field"><input id="f-grump" type="checkbox"></span></div>
+    <div class="hint">睡熟后被吵醒，猫最多气一分钟。摸头能让它更快消气。</div>
+  </div>
+  <div class="row" data-bool="purr">
+    <div class="head"><label for="f-purr">摸摸时打呼噜</label>
+      <span class="field"><input id="f-purr" type="checkbox"></span></div>
+    <div class="head">
+      <label for="f-purrVolume">呼噜音量</label>
+      <span class="field"><input id="f-purrVolume" type="range" min="0" max="100" step="1" value="60"><span id="purr-percent" class="unit">60%</span></span>
+    </div>
   </div>
   <div class="row" data-bool="headphones">
     <div class="head"><label for="f-headphones">听歌时戴耳机</label>
@@ -309,6 +326,8 @@
   for (const k of S.BOOLS) bools[k] = document.getElementById(`f-${k}`);
   const sizeInput = document.getElementById('f-size');
   const sizePercent = document.getElementById('size-percent');
+  const purrVolume = document.getElementById('f-purrVolume');
+  const purrPercent = document.getElementById('purr-percent');
   const autostartInput = document.getElementById('f-autostart');
   const clickThroughInput = document.getElementById('f-click-through');
   sizeInput.min = String(Math.round(S.SIZE.min * 100));
@@ -331,6 +350,7 @@
     }
     for (const k of S.BOOLS) bools[k].checked = s[k] !== false;
     sizeInput.value = Math.round(s.size * 100);
+    purrVolume.value = s.purrVolume;
     refreshHints(s);
   }
   // 时间项按秒读；可选项留空 = null（自动），其他时间项留空 = NaN（校验报错）
@@ -348,6 +368,7 @@
     }
     for (const k of S.BOOLS) s[k] = bools[k].checked;
     s.size = sizeInput.valueAsNumber / 100;
+    s.purrVolume = purrVolume.valueAsNumber;
     return s;
   }
   function refreshHints(s) {
@@ -356,6 +377,8 @@
     rows.pushEvery.input.disabled = !s.push;
     hpColors.classList.toggle('is-dim', !s.headphones);
     sizePercent.textContent = `${sizeInput.value}%`;
+    purrVolume.disabled = !s.purr;
+    purrPercent.textContent = `${purrVolume.value}%`;
   }
   function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls || ''; }
 

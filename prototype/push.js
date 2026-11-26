@@ -116,7 +116,7 @@
       if (demo) { dir = newDir; return; }
       if (run) {
         const t = now - run.start;
-        if (S.state !== STATES.AWAKE || !enabled || reducedMotion() || newDir !== dir) {
+        if (S.state !== STATES.AWAKE || !enabled || opts.blocked?.() || reducedMotion() || newDir !== dir) {
           if (t < SHOVE) cancel(now);
           else run.acting = false;
         }
@@ -139,7 +139,7 @@
       }
       if (settling && now - settling.at >= SETTLE_MS) settling = null;
       const sinceKey = now - S.lastKeyAt;
-      if (enabled && !run && now >= nextPush && backAt === -Infinity && S.state === STATES.AWAKE &&
+      if (enabled && !run && !opts.blocked?.() && now >= nextPush && backAt === -Infinity && S.state === STATES.AWAKE &&
           !reducedMotion() && sinceKey >= IDLE_MIN && sinceKey <= IDLE_MAX &&
           now - S.lastInput >= IDLE_MIN && !S.pressed.size && !S.mouseButtons.size) {
         run = { start: now, from: offset, dir, acting: true };

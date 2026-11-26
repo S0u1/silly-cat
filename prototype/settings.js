@@ -8,8 +8,12 @@
   // drool / slump 为 null 表示「自动」：沿用 sleep.js 的原逻辑（入睡时间 × 2、× 3.5）
   // statusBar：猫头顶的状态条（困了 / 烦躁 / 消气中）显示与否；push：推杯子开关。和 autoUpdate（自动检查更新）都是开关项，不参与 KEYS 里的数字校验
   // pushEvery：大约多久推一次杯子（秒），push.js 在它的 0.5–1.5 倍之间随机
-  const DEFAULTS = Object.freeze({ sleep: 20, drool: null, slump: null, work: 90, rest: 20, statusBar: true, autoUpdate: true, push: true, eyesFollow: true, headphones: false, headphoneColor: 'strawberry', pushEvery: 600, size: 1, cat: 'cow', artStyle: 'fur' });
-  const BOOLS = Object.freeze(['statusBar', 'autoUpdate', 'push', 'eyesFollow', 'headphones']);
+  const DEFAULTS = Object.freeze({
+    sleep: 20, drool: null, slump: null, work: 90, rest: 20, statusBar: true, autoUpdate: true,
+    push: true, pushEvery: 600, eyesFollow: true, swat: true, grump: true, purr: true, purrVolume: 60,
+    headphones: false, headphoneColor: 'strawberry', size: 1, cat: 'cow', artStyle: 'fur',
+  });
+  const BOOLS = Object.freeze(['statusBar', 'autoUpdate', 'push', 'eyesFollow', 'headphones', 'swat', 'grump', 'purr']);
   const HEADPHONE_COLORS = Object.freeze({
     strawberry: '草莓奶', mint: '薄荷', latte: '奶咖', sky: '天蓝',
   });
@@ -64,6 +68,7 @@
         else if (typeof v === 'number' && Number.isFinite(v) && v >= FIELDS[k].min && v <= FIELDS[k].max) s[k] = v;
       }
       for (const k of BOOLS) if (typeof raw[k] === 'boolean') s[k] = raw[k]; // 旧的 settings.json 没有这项：用默认值
+      if (Number.isFinite(raw.purrVolume)) s.purrVolume = Math.max(0, Math.min(100, raw.purrVolume));
       s.headphoneColor = normalizeHeadphoneColor(raw.headphoneColor);
       const size = raw.size;
       if (Number.isFinite(size) && size >= SIZE.min && size <= SIZE.max) s.size = size;
